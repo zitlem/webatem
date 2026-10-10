@@ -102,3 +102,40 @@ def test_device_answer_is_not_retried(pool):
     with pytest.raises(ValueError):
         pool.run(IP, lambda dev: (_ for _ in ()).throw(ValueError('NAK')), 'a')
     assert len(pool.opened) == 1
+
+
+# ---- the Connect page's Rescan (atem_control.tcpscan) ----------------------
+
+class _Sock:
+    def __init__(self, data):
+        self.data = [data]
+
+    def settimeout(self, _t):
+        pass
+
+    def recv(self, _n):
+        return self.data.pop(0) if self.data else b''
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize('kind, preamble, expect', [
+    ('videohub', b'PROTOCOL PREAMBLE:\nVersion: 2.8\n\nVIDEOHUB DEVICE:\nDevice present: true\n'
+                 b'Model name: Blackmagic Smart Videohub 20 x 20\nFriendly name: Hub A\n\nEND PRELUDE:\n\n',
+     {'name': 'Hub A', 'model': 'Blackmagic Smart Videohub 20 x 20'}),
+    ('videohub', b'PROTOCOL PREAMBLE:\nVersion: 2.8\n\nVIDEOHUB DEVICE:\nDevice present: false\n\nEND PRELUDE:\n\n', None),
+    ('streamer', b'PROTOCOL PREAMBLE:\nVersion: 1.2\n\nIDENTITY:\nModel: Blackmagic Streaming Encoder 4K\n'
+                 b'Label: Web Presenter 4K\n\nEND PRELUDE:\n\n',
+     {'name': 'Web Presenter 4K', 'model': 'Blackmagic Streaming Encoder 4K'}),
+    ('streamer', b'HTTP/1.1 400 Bad Request\r\n\r\n', None),     # something else on the port
+])
+def test_scan_identifies_from_the_preamble(monkeypatch, kind, preamble, expect):
+    from atem_control import tcpscan
+    monkeypatch.setattr(tcpscan.socket, 'create_connection', lambda addr, timeout: _Sock(preamble))
+    port, keys = tcpscan.KINDS[kind]
+    got = tcpscan._identify('192.0.2.30', port, keys)
+    if expect is None:
+        assert got is None
+    else:
+        assert {k: got[k] for k in ('name', 'model')} == expect and got['source'] == 'scan'

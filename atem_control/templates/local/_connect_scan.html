@@ -1,0 +1,20 @@
+{% load static_v %}
+{% comment %} Local addition: one scan for the whole Connect page. It runs the
+   ATEM card's own subnet sweep (through its hidden Rescan button) and the
+   Videohub and encoder sweeps together; each card lists what it finds.
+   js/local_connect_scan.js. {% endcomment %}
+<div class="flex flex-wrap items-center justify-center gap-2 mt-4" id="netScan">
+    <span class="text-sm" style="color:var(--text-muted)">Find devices on</span>
+    <input type="text" id="netScanSubnet" class="input input-sm input-bordered w-40 font-mono"
+           placeholder="192.168.1" aria-label="Subnet to scan" title="Subnet to scan: first three octets, or a CIDR like 192.168.0.0/22">
+    <button type="button" id="netScanBtn" class="btn btn-sm gap-1" title="Scan this subnet for ATEMs, Videohubs and streaming encoders, including ones that don't advertise over Bonjour">
+        <i class="bi bi-arrow-clockwise"></i> Scan network
+    </button>
+    <span class="text-xs w-full" style="color:var(--text-faint)" id="netScanNote"></span>
+</div>
+<style>
+    /* The ATEM card's own subnet field and Rescan stay in the page for its
+       script, driven from here; the page shows one scan control. */
+    #scanSubnet, #scanBtn { display: none !important; }
+</style>
+<script src="{% static_v 'js/local_connect_scan.js' %}" defer></script>

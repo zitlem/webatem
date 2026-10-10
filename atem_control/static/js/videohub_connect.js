@@ -58,4 +58,5 @@
 
     poll();
     setInterval(poll, 3000);
+    window.vhConnectRefresh = poll;   // the page's Scan network refreshes this card
 })();

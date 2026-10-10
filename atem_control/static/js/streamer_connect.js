@@ -59,4 +59,5 @@
 
     poll();
     setInterval(poll, 3000);
+    window.seConnectRefresh = poll;   // the page's Scan network refreshes this card
 })();

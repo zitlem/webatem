@@ -7,6 +7,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
+from atem_control import discovery as atem_discovery, tcpscan
 from atem_control.hooks import access_required
 from atem_control.netutil import is_valid_ip
 from atem_control.streamer import discovery, store
@@ -78,7 +79,8 @@ def streamer_page(request):
 @access_required
 def streamer_discovered(request):
     discovery.ensure_started()
-    return JsonResponse({'devices': discovery.discovered(), 'recent': store.recent()})
+    return JsonResponse({'devices': _merge(discovery.discovered(), tcpscan.found('streamer')),
+                         'recent': store.recent(), 'subnet': atem_discovery.local_subnet()})
 
 
 @require_POST
@@ -176,3 +178,20 @@ def streamer_release(request):
             raise _Bad('viewer required')
         return JsonResponse({'closed': release(ip, viewer)})
     return _answer(run)
+
+
+def _merge(bonjour, swept):
+    """Bonjour entries first; swept ones add what Bonjour did not see."""
+    seen = {e['ip'] for e in bonjour}
+    return bonjour + sorted((e for e in swept if e['ip'] not in seen), key=lambda e: e['ip'])
+
+
+@require_GET
+@access_required
+def streamer_scan(request):
+    """Rescan ``?subnet=192.168.1`` (or the host's own network) for
+    devices Bonjour does not show; each answering host is identified from
+    its preamble and the socket closed at once."""
+    subnet = (request.GET.get('subnet') or '').strip() or None
+    known = [e['ip'] for e in discovery.discovered()] + [e['ip'] for e in store.recent()]
+    return JsonResponse(tcpscan.scan('streamer', subnet, known))
