@@ -139,7 +139,7 @@
                 </label>
             </div>
             <h2 class="vh-kicker se-sub-head">Network <span class="vh-sub">(read only)</span></h2>
-            <template x-for="n in interfaces" :key="n.name">
+            <template x-for="n in interfaces.filter(i => i.addresses.some(a => !a.startsWith('0.0.0.0')))" :key="n.name">
                 <dl class="se-net brand-data">
                     <div><dt x-text="n.name"></dt><dd x-text="(n.addresses.join(', ') || '—') + (n.dhcp ? ' · DHCP' : ' · static')"></dd></div>
                     <div x-show="n.gateway"><dt>Gateway</dt><dd x-text="n.gateway"></dd></div>

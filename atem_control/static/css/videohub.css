@@ -89,6 +89,7 @@ main:has(> .vh-page) {
 .vh-tool .bi { font-size: 1.05rem; }
 .vh-primary { background: var(--vh-amber); border-color: var(--vh-amber); color: #141618; }
 .vh-primary:hover:not(:disabled) { background: var(--vh-amber); filter: brightness(1.08); }
+.vh-primary:disabled { background: var(--surface-raised); border-color: var(--border); color: var(--text-faint); opacity: 1; }
 .vh-caret { font-size: 0.7rem !important; opacity: 0.6; }
 
 .vh-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
