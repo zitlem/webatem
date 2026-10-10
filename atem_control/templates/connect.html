@@ -10,17 +10,21 @@
 {% endblock %}
 
 {% block content %}
-<div class="min-h-[calc(100vh-12rem)] flex items-start justify-center p-4 pt-24">
+<!-- Page title (local change: above the device cards, not inside the ATEM one) -->
+<header class="text-center px-4" style="padding-top:4rem;padding-bottom:0.5rem">
+    <div class="flex items-center justify-center gap-[14px] mb-3">
+        <span class="brand-mark" style="width:44px;height:44px">{% include "brand/_mark.svg" %}</span>
+        <span class="brand-wordmark" style="font-size:30px"><span>web</span>ATEM</span>
+    </div>
+    <p style="color:var(--text-muted)">Browser control for Blackmagic switchers, routers and streaming encoders.</p>
+</header>
+<div class="min-h-[calc(100vh-12rem)] flex items-start justify-center p-4 pt-6">
     <div class="card w-full max-w-md bg-base-200">
         <div class="card-body">
-            <!-- Header -->
-            <div class="text-center mb-6 relative">
-                <div class="flex items-center justify-center gap-[14px] mb-3">
-                    <span class="brand-mark" style="width:44px;height:44px">{% include "brand/_mark.svg" %}</span>
-                    <span class="brand-wordmark" style="font-size:30px"><span>web</span>ATEM</span>
-                </div>
-                <p style="color:var(--text-muted)">Browser control for ATEM switchers.</p>
-            </div>
+            <h2 class="card-title text-base gap-2">
+                <i class="bi bi-grid-3x2-gap text-[color:var(--text-muted)]"></i>
+                ATEM switchers
+            </h2>
 
             <!-- Connection Form -->
             <form onsubmit="connectToAtem(event)" class="space-y-4" data-control-url="{% url 'atem_control:control' %}">
