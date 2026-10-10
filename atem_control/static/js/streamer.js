@@ -17,11 +17,30 @@
         return m ? decodeURIComponent(m[1]) : '';
     }
 
+    // This page's id: sent with every poll and action so the server keeps the
+    // device's session open while the page watches, and closes it when the
+    // page leaves (← or closing the tab) and no other page is watching.
+    var VIEWER = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+        : 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+    function releaseUrl(urls) { return urls.release; }
+
+    function release(urls, ip) {
+        if (!ip) return;
+        try {
+            fetch(releaseUrl(urls), {
+                method: 'POST', keepalive: true,
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+                body: JSON.stringify({ ip: ip, viewer: VIEWER })
+            });
+        } catch (e) { /* leaving anyway; the server's idle reaper closes it */ }
+    }
+
     function post(url, data) {
         return fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
-            body: JSON.stringify(data)
+            body: JSON.stringify(Object.assign({ viewer: VIEWER }, data))
         }).then(function (resp) {
             return resp.text().then(function (text) {
                 var body;
@@ -48,11 +67,21 @@
 
             init: function () {
                 var self = this;
+                window.addEventListener('pagehide', function () { release(window.STREAMER_URLS, self.ip); });
                 if (!this.ip) { this.loading = false; return; }
                 this.open();
                 document.addEventListener('visibilitychange', function () {
                     if (document.hidden) self.stopPoll(); else if (self.ready) self.startPoll();
                 });
+            },
+
+            // The ← button: release this page's hold on the device, then go to
+            // the Connect page (pagehide releases too; once is enough).
+            leave: function () {
+                this.stopPoll();
+                release(window.STREAMER_URLS, this.ip);
+                this.ip = '';
+                window.location.href = window.STREAMER_URLS.connect;
             },
 
             open: function () {
@@ -100,7 +129,7 @@
                 var self = this;
                 if (this._polling || this.busy) return;
                 this._polling = true;
-                fetch(window.STREAMER_URLS.state + '?ip=' + encodeURIComponent(this.ip), { cache: 'no-store' })
+                fetch(window.STREAMER_URLS.state + '?ip=' + encodeURIComponent(this.ip) + '&viewer=' + VIEWER, { cache: 'no-store' })
                     .then(function (r) { return r.json().then(function (b) { if (!r.ok) throw new Error(b.error || 'HTTP ' + r.status); return b; }); })
                     .then(function (snap) { self.apply(snap, false); })
                     .catch(function (e) { self.ok = false; self.error = e.message; })

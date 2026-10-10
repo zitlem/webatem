@@ -11,7 +11,7 @@ from atem_control.hooks import access_required
 from atem_control.netutil import is_valid_ip
 from atem_control.streamer import discovery, store
 from atem_control.streamer.client import WRITABLE, StreamerError
-from atem_control.streamer.connection import forget, with_streamer
+from atem_control.streamer.connection import forget, release, with_streamer
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,12 @@ def _ip(raw):
     if not is_valid_ip(ip):
         raise _Bad('valid ip required')
     return ip
+
+
+def _viewer(raw):
+    """The polling page's id (random, from the page), or None."""
+    value = str(raw or '')[:40]
+    return value if value.replace('-', '').isalnum() else None
 
 
 def _snapshot(ip, dev):
@@ -79,8 +85,9 @@ def streamer_discovered(request):
 @access_required
 def streamer_open(request):
     def run():
-        ip = _ip(_body(request).get('ip'))
-        snap = with_streamer(ip, lambda dev: _snapshot(ip, dev))
+        body = _body(request)
+        ip = _ip(body.get('ip'))
+        snap = with_streamer(ip, lambda dev: _snapshot(ip, dev), _viewer(body.get('viewer')))
         ident = snap['identity']
         store.remember(ip, ident.get('Label', ''), ident.get('Model', ''))
         return JsonResponse(snap)
@@ -92,7 +99,8 @@ def streamer_open(request):
 def streamer_state(request):
     def run():
         ip = _ip(request.GET.get('ip'))
-        return JsonResponse(with_streamer(ip, lambda dev: _snapshot(ip, dev)))
+        viewer = _viewer(request.GET.get('viewer'))
+        return JsonResponse(with_streamer(ip, lambda dev: _snapshot(ip, dev), viewer))
     return _answer(run)
 
 
@@ -110,7 +118,7 @@ def streamer_stream(request):
             dev.start() if action == 'start' else dev.stop()
             return _snapshot(ip, dev)
 
-        snap = with_streamer(ip, go)
+        snap = with_streamer(ip, go, _viewer(body.get('viewer')))
         _log(ip, action, f"{'Started' if action == 'start' else 'Stopped'} streaming on "
              f"{snap['identity'].get('Label') or ip}")
         return JsonResponse(snap)
@@ -137,7 +145,7 @@ def streamer_settings(request):
             dev.set(block, values)
             return _snapshot(ip, dev)
 
-        snap = with_streamer(ip, go)
+        snap = with_streamer(ip, go, _viewer(body.get('viewer')))
         shown = ', '.join(k if 'Key' in k or 'Password' in k else f'{k}={v}' for k, v in values)
         _log(ip, 'settings', f'{block} on {snap["identity"].get("Label") or ip}: {shown}')
         return JsonResponse(snap)
@@ -153,4 +161,18 @@ def streamer_reboot(request):
         forget(ip)
         _log(ip, 'reboot', f'Rebooted streaming encoder {ip}')
         return JsonResponse({'ok': True})
+    return _answer(run)
+
+
+@require_POST
+@access_required
+def streamer_release(request):
+    """Body ``{ip, viewer}``: this page is leaving; the session closes
+    unless another page is still watching the encoder."""
+    def run():
+        body = _body(request)
+        ip, viewer = _ip(body.get('ip')), _viewer(body.get('viewer'))
+        if not viewer:
+            raise _Bad('viewer required')
+        return JsonResponse({'closed': release(ip, viewer)})
     return _answer(run)

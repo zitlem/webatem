@@ -13,4 +13,5 @@ urlpatterns = [
     path('api/label/',        views.videohub_label,       name='videohub_label'),
     path('api/salvos/',       views.videohub_salvos,      name='videohub_salvos'),
     path('api/routes-file/',  views.videohub_routes_file, name='videohub_routes_file'),
+    path('api/release/',      views.videohub_release,     name='videohub_release'),
 ]

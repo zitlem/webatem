@@ -1,0 +1,7 @@
+{% comment %} Local addition: the same ← as the Videohub and encoder pages. It
+   leaves the way the ✕ does ($store.atem.disconnect(): the switcher session is
+   released, then the Connect page). Included once, from control/_header.html. {% endcomment %}
+<button type="button" class="btn btn-square bg-base-300 hover:bg-base-content hover:text-base-100 border-0 shadow-md"
+        @click="$store.atem.disconnect()" title="Back to the Connect page (disconnects from this switcher)" aria-label="Back to the Connect page">
+    <i class="bi bi-arrow-left text-lg"></i>
+</button>

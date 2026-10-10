@@ -14,7 +14,9 @@
 <div class="vh-page se-page" x-data="streamerPage('{{ device_ip|escapejs }}')">
 
     <header class="vh-card vh-header">
-        <a href="{% url 'atem_control:connect' %}" class="vh-tool" title="Back to the Connect page"><i class="bi bi-arrow-left"></i></a>
+        <button type="button" class="vh-tool" @click="leave()" title="Back to the Connect page (closes this device's session when nobody else has it open)">
+            <i class="bi bi-arrow-left"></i>
+        </button>
         <span class="brand-mark" style="width:32px;height:32px" role="img" aria-label="WebATEM">{% include "brand/_mark.svg" %}</span>
         <h1 class="vh-title brand-data">
             <span class="vh-dot" :class="ok ? 'vh-dot-ok' : (loading ? '' : 'vh-dot-bad')"></span>
@@ -169,6 +171,8 @@
 {% block extra_js %}
 <script>
     window.STREAMER_URLS = {
+        connect: "{% url 'atem_control:connect' %}",
+        release: "{% url 'atem_control:streamer_release' %}",
         open: "{% url 'atem_control:streamer_open' %}",
         state: "{% url 'atem_control:streamer_state' %}",
         stream: "{% url 'atem_control:streamer_stream' %}",

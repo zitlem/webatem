@@ -10,4 +10,5 @@ urlpatterns = [
     path('api/stream/',     views.streamer_stream,     name='streamer_stream'),
     path('api/settings/',   views.streamer_settings,   name='streamer_settings'),
     path('api/reboot/',     views.streamer_reboot,     name='streamer_reboot'),
+    path('api/release/',    views.streamer_release,    name='streamer_release'),
 ]

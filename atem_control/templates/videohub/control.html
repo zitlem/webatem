@@ -13,9 +13,9 @@
 
     <!-- Header: back to Connect, the hub, view / take / salvos / file / labels -->
     <header class="vh-card vh-header">
-        <a href="{% url 'atem_control:connect' %}" class="vh-tool" title="Back to the Connect page">
+        <button type="button" class="vh-tool" @click="leave()" title="Back to the Connect page (closes this device's session when nobody else has it open)">
             <i class="bi bi-arrow-left"></i>
-        </a>
+        </button>
         <span class="brand-mark" style="width:32px;height:32px" role="img" aria-label="WebATEM">{% include "brand/_mark.svg" %}</span>
         <h1 class="vh-title brand-data">
             <span class="vh-dot" :class="ok ? 'vh-dot-ok' : (loading ? '' : 'vh-dot-bad')"></span>
@@ -90,7 +90,8 @@
                 <span class="vh-actions-name brand-data" x-text="dest.label"></span>
                 <i class="bi bi-arrow-left-short vh-arrow"></i>
                 <span class="vh-actions-src brand-data" x-text="sourceLabel(dest.source)"></span>
-                <span class="vh-lock-note" x-show="dest.lock !== 'U'" x-text="dest.lock === 'O' ? 'Locked by WebATEM' : 'Locked by another panel'"></span>
+                <span class="vh-lock-note" x-show="dest.lock !== 'U'" x-text="dest.lock === 'O' ? 'Locked by WebATEM' : 'Locked by another panel'"
+                      :title="dest.lock === 'O' ? 'WebATEM\'s locks are released when nobody has this hub\'s page open' : ''"></span>
             </div>
         </template>
         <div class="vh-actions-tools">
@@ -231,6 +232,8 @@
 {% block extra_js %}
 <script>
     window.VIDEOHUB_URLS = {
+        connect: "{% url 'atem_control:connect' %}",
+        release: "{% url 'atem_control:videohub_release' %}",
         open: "{% url 'atem_control:videohub_open' %}",
         state: "{% url 'atem_control:videohub_state' %}",
         route: "{% url 'atem_control:videohub_route' %}",

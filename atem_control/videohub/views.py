@@ -18,7 +18,7 @@ from atem_control.netutil import is_valid_ip
 from atem_control.videohub import discovery, store
 from atem_control.videohub.client import LOCK_MODES
 from atem_control.videohub.connection import (
-    previous_map, previous_source, remember_previous, with_hub)
+    previous_map, previous_source, release, remember_previous, with_hub)
 from videohubwire import VideohubError
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,12 @@ def _snapshot(ip, hub):
     snap['ip'] = ip
     snap['previous'] = {str(k): v for k, v in previous_map(ip).items()}
     return snap
+
+
+def _viewer(raw):
+    """The polling page's id (random, from the page), or None."""
+    value = str(raw or '')[:40]
+    return value if value.replace('-', '').isalnum() else None
 
 
 def _salvo_key(hub, ip):
@@ -99,7 +105,8 @@ def videohub_discovered(request):
 def videohub_state(request):
     def run():
         ip = _ip(request.GET.get('ip'))
-        return JsonResponse(with_hub(ip, lambda hub: _snapshot(ip, hub)))
+        viewer = _viewer(request.GET.get('viewer'))
+        return JsonResponse(with_hub(ip, lambda hub: _snapshot(ip, hub), viewer))
     return _answer(run)
 
 
@@ -108,8 +115,9 @@ def videohub_state(request):
 def videohub_open(request):
     """First load of a hub: state plus recording it under Recent."""
     def run():
-        ip = _ip(_body(request).get('ip'))
-        snap = with_hub(ip, lambda hub: _snapshot(ip, hub))
+        body = _body(request)
+        ip = _ip(body.get('ip'))
+        snap = with_hub(ip, lambda hub: _snapshot(ip, hub), _viewer(body.get('viewer')))
         dev = snap['device']
         store.remember(ip, dev.get('friendly_name', ''), dev.get('model_name', ''))
         return JsonResponse(snap)
@@ -136,7 +144,7 @@ def videohub_route(request):
                 hub.route_many(routes)
             return _snapshot(ip, hub)
 
-        snap = with_hub(ip, go)
+        snap = with_hub(ip, go, _viewer(body.get('viewer')))
         names = {o['index']: o['label'] for o in snap['outputs']}
         srcs = {i['index']: i['label'] for i in snap['inputs']}
         text = ', '.join(f"{srcs.get(s, s)} → {names.get(d, d)}" for d, s in routes)
@@ -161,7 +169,7 @@ def videohub_previous(request):
             hub.route(dest, src)
             return _snapshot(ip, hub)
 
-        snap = with_hub(ip, go)
+        snap = with_hub(ip, go, _viewer(body.get('viewer')))
         _log(request, ip, 'previous', f'Videohub {ip}: output {dest + 1} back to input {src + 1}')
         return JsonResponse(snap)
     return _answer(run)
@@ -181,7 +189,7 @@ def videohub_lock(request):
             hub.set_lock(dest, mode)
             return _snapshot(ip, hub)
 
-        snap = with_hub(ip, go)
+        snap = with_hub(ip, go, _viewer(body.get('viewer')))
         _log(request, ip, f'lock_{mode}', f'Videohub {ip}: {mode} output {dest + 1}')
         return JsonResponse(snap)
     return _answer(run)
@@ -205,7 +213,7 @@ def videohub_label(request):
                 hub.set_output_label(index, label)
             return _snapshot(ip, hub)
 
-        snap = with_hub(ip, go)
+        snap = with_hub(ip, go, _viewer(body.get('viewer')))
         _log(request, ip, 'label', f'Videohub {ip}: {kind} {index + 1} renamed "{label}"')
         return JsonResponse(snap)
     return _answer(run)
@@ -296,7 +304,21 @@ def videohub_routes_file(request):
             hub.route_many(routes)
             return _snapshot(ip, hub)
 
-        snap = with_hub(ip, go)
+        snap = with_hub(ip, go, _viewer(body.get('viewer')))
         _log(request, ip, 'routes_import', f'Videohub {ip}: loaded {len(routes)} routes from a file')
         return JsonResponse(snap)
+    return _answer(run)
+
+
+@require_POST
+@access_required
+def videohub_release(request):
+    """Body ``{ip, viewer}``: this page is leaving. The hub session closes
+    unless another page is still watching it."""
+    def run():
+        body = _body(request)
+        ip, viewer = _ip(body.get('ip')), _viewer(body.get('viewer'))
+        if not viewer:
+            raise _Bad('viewer required')
+        return JsonResponse({'closed': release(ip, viewer)})
     return _answer(run)
