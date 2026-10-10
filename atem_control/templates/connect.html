@@ -16,7 +16,7 @@
         <span class="brand-mark" style="width:44px;height:44px">{% include "brand/_mark.svg" %}</span>
         <span class="brand-wordmark" style="font-size:30px"><span>web</span>ATEM</span>
     </div>
-    <p style="color:var(--text-muted)">Browser control for Blackmagic switchers, routers and streaming encoders.</p>
+    <p style="color:var(--text-muted)">Browser control for ATEM switchers.</p>
 </header>
 <div class="min-h-[calc(100vh-12rem)] flex items-start justify-center p-4 pt-6">
     <div class="card w-full max-w-md bg-base-200">
@@ -28,21 +28,24 @@
 
             <!-- Connection Form -->
             <form onsubmit="connectToAtem(event)" class="space-y-4" data-control-url="{% url 'atem_control:control' %}">
-                <div class="form-control">
-                    <label class="label" for="ipAddress">
-                        <span class="label-text font-medium">ATEM IP Address</span>
-                    </label>
-                    <!-- IP-only connect: validated client-side before the
-                         WebSocket attempt. -->
-                    <div class="relative">
-                        <input type="text" id="ipAddress" name="ipAddress" placeholder="Enter IP address"
+                <!-- IP-only connect: validated client-side before the
+                     WebSocket attempt. Address and button on one row, like
+                     the Videohub and encoder cards (local change). -->
+                <div class="relative">
+                    <div class="flex gap-2">
+                        <input type="text" id="ipAddress" name="ipAddress" placeholder="ATEM IP address"
+                            aria-label="ATEM IP address or name"
                             value="{{ initial_ip|default:'' }}"
                             autocomplete="off"
-                            required class="input input-bordered w-full brand-data">
+                            required class="input input-bordered flex-1 min-w-0 brand-data">
+                        <button type="submit" class="btn btn-primary" id="connectBtn"
+                            data-idle-html="&lt;i class=&quot;bi bi-box-arrow-in-right mr-1&quot;&gt;&lt;/i&gt;Connect">
+                            <i class="bi bi-box-arrow-in-right mr-1"></i>Connect
+                        </button>
+                    </div>
                         <ul id="ipSuggestions"
                             class="menu absolute left-0 right-0 top-full mt-1 p-2 shadow-lg bg-base-100 rounded-box z-30 max-h-72 overflow-y-auto flex-nowrap hidden">
                         </ul>
-                    </div>
                 </div>
 
                 {% if recent_atems %}
@@ -60,7 +63,7 @@
                     <div class="flex flex-wrap gap-2">
                         {% for atem in recent_atems %}
                         <button type="button" class="btn btn-sm btn-outline btn-primary"
-                            onclick="setIP('{{ atem.ip_address }}')"
+                            onclick="setIP('{{ atem.ip_address }}'); connectToAtem(new Event('submit'))"
                             title="{% if atem.equipment_name %}{{ atem.equipment_name }} - {% endif %}{{ atem.ip_address }}">
                             {% if atem.equipment_name %}
                             <span class="recent-by-name">{{ atem.equipment_name }}</span><span class="recent-by-ip">{{ atem.ip_address }}</span>
@@ -101,10 +104,6 @@
                 </div>
                 {% endif %}
 
-                <button type="submit" class="btn btn-primary w-full" id="connectBtn">
-                    <i class="bi bi-plug mr-2"></i>
-                    Connect to ATEM
-                </button>
             </form>
 
             <!-- Status Message -->

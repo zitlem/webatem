@@ -169,7 +169,7 @@
             btn.innerHTML = '<span class="atem-connect-btn-inner"><span class="loading loading-spinner loading-sm"></span>Connecting...</span>';
         } else {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-plug mr-2"></i>Connect to ATEM';
+            btn.innerHTML = btn.dataset.idleHtml || '<i class="bi bi-plug mr-2"></i>Connect to ATEM';   // local: the page sets its own idle label
         }
     }
 
