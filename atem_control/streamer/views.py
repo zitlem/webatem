@@ -1,0 +1,156 @@
+"""The streaming-encoder page and its JSON API (``/atem/streamer/…``)."""
+import json
+import logging
+
+from django.http import HttpResponseBadRequest, JsonResponse
+from django.shortcuts import render
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_POST
+
+from atem_control.hooks import access_required
+from atem_control.netutil import is_valid_ip
+from atem_control.streamer import discovery, store
+from atem_control.streamer.client import WRITABLE, StreamerError
+from atem_control.streamer.connection import forget, with_streamer
+
+logger = logging.getLogger(__name__)
+
+
+class _Bad(Exception):
+    pass
+
+
+def _body(request):
+    try:
+        return json.loads(request.body or b'{}')
+    except (ValueError, TypeError):
+        raise _Bad('invalid json')
+
+
+def _ip(raw):
+    ip = (raw or '').strip()
+    if not is_valid_ip(ip):
+        raise _Bad('valid ip required')
+    return ip
+
+
+def _snapshot(ip, dev):
+    snap = dev.state()
+    snap['ip'] = ip
+    return snap
+
+
+def _answer(fn):
+    try:
+        return fn()
+    except _Bad as e:
+        return HttpResponseBadRequest(str(e))
+    except (KeyError, ValueError, TypeError) as e:
+        return HttpResponseBadRequest(f'bad request: {e}')
+    except (OSError, StreamerError) as e:
+        return JsonResponse({'error': str(e)}, status=502)
+
+
+def _log(ip, action, summary):
+    try:
+        from atem_control.activity import ActivityLog, record_activity
+        record_activity(feature=ActivityLog.FEATURE_ATEM_CONTROL,
+                        device=ActivityLog.DEVICE_STREAMER, action=f'streamer_{action}',
+                        target=ip, summary=summary)
+    except Exception:
+        logger.exception('streamer activity log failed')
+
+
+@ensure_csrf_cookie
+@access_required
+def streamer_page(request):
+    ip = (request.GET.get('ip') or '').strip()
+    return render(request, 'streamer/control.html', {'device_ip': ip if is_valid_ip(ip) else ''})
+
+
+@require_GET
+@access_required
+def streamer_discovered(request):
+    discovery.ensure_started()
+    return JsonResponse({'devices': discovery.discovered(), 'recent': store.recent()})
+
+
+@require_POST
+@access_required
+def streamer_open(request):
+    def run():
+        ip = _ip(_body(request).get('ip'))
+        snap = with_streamer(ip, lambda dev: _snapshot(ip, dev))
+        ident = snap['identity']
+        store.remember(ip, ident.get('Label', ''), ident.get('Model', ''))
+        return JsonResponse(snap)
+    return _answer(run)
+
+
+@require_GET
+@access_required
+def streamer_state(request):
+    def run():
+        ip = _ip(request.GET.get('ip'))
+        return JsonResponse(with_streamer(ip, lambda dev: _snapshot(ip, dev)))
+    return _answer(run)
+
+
+@require_POST
+@access_required
+def streamer_stream(request):
+    """Body ``{ip, action: start|stop}``."""
+    def run():
+        body = _body(request)
+        ip, action = _ip(body.get('ip')), body.get('action')
+        if action not in ('start', 'stop'):
+            raise _Bad('action must be start or stop')
+
+        def go(dev):
+            dev.start() if action == 'start' else dev.stop()
+            return _snapshot(ip, dev)
+
+        snap = with_streamer(ip, go)
+        _log(ip, action, f"{'Started' if action == 'start' else 'Stopped'} streaming on "
+             f"{snap['identity'].get('Label') or ip}")
+        return JsonResponse(snap)
+    return _answer(run)
+
+
+@require_POST
+@access_required
+def streamer_settings(request):
+    """Body ``{ip, block, values: [[key, value], …]}`` (order kept: the
+    platform goes first, the device then offers its servers and qualities)."""
+    def run():
+        body = _body(request)
+        ip, block = _ip(body.get('ip')), body.get('block')
+        if block not in WRITABLE:
+            raise _Bad('block not writable')
+        values = [(str(k), str(v)) for k, v in body.get('values') or []]
+        if not values:
+            raise _Bad('values required')
+        order = {k: i for i, k in enumerate(WRITABLE[block])}
+        values.sort(key=lambda kv: order.get(kv[0], 99))
+
+        def go(dev):
+            dev.set(block, values)
+            return _snapshot(ip, dev)
+
+        snap = with_streamer(ip, go)
+        shown = ', '.join(k if 'Key' in k or 'Password' in k else f'{k}={v}' for k, v in values)
+        _log(ip, 'settings', f'{block} on {snap["identity"].get("Label") or ip}: {shown}')
+        return JsonResponse(snap)
+    return _answer(run)
+
+
+@require_POST
+@access_required
+def streamer_reboot(request):
+    def run():
+        ip = _ip(_body(request).get('ip'))
+        with_streamer(ip, lambda dev: dev.reboot())
+        forget(ip)
+        _log(ip, 'reboot', f'Rebooted streaming encoder {ip}')
+        return JsonResponse({'ok': True})
+    return _answer(run)

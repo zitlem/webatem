@@ -1,0 +1,30 @@
+{% load static_v %}
+{% comment %} Local addition: open a Web Presenter / Streaming Encoder from the
+   Connect page. Filled by js/streamer_connect.js. {% endcomment %}
+<div class="card w-full max-w-md bg-base-200 vh-connect">
+    <div class="card-body">
+        <h2 class="card-title text-base gap-2">
+            <i class="bi bi-broadcast text-[color:var(--text-muted)]"></i>
+            Streaming encoders
+        </h2>
+        <p class="text-xs text-base-content/60 -mt-1">Web Presenter HD / 4K, Streaming Encoder HD / 4K</p>
+        <form class="flex gap-2" id="seConnectForm" data-page-url="{% url 'atem_control:streamer' %}">
+            <input type="text" id="seIp" placeholder="Encoder IP address" autocomplete="off"
+                   class="input input-bordered flex-1 min-w-0 brand-data" aria-label="Streaming encoder IP address">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-box-arrow-in-right mr-1"></i>Open</button>
+        </form>
+        <p class="text-xs text-error hidden" id="seIpError">Enter an IPv4 address, e.g. 192.168.1.60</p>
+        <div class="form-control hidden" id="seRecentWrap">
+            <div class="label"><span class="label-text text-sm text-base-content/70">Recent</span></div>
+            <div class="flex flex-wrap gap-2" id="seRecent"></div>
+        </div>
+        <div class="form-control">
+            <div class="label"><span class="label-text text-sm text-base-content/70">On Your Network</span></div>
+            <div class="flex flex-wrap gap-2" id="seFound"></div>
+            <p class="text-xs text-base-content/50 mt-1" id="seFoundEmpty">
+                Looking for encoders on your network… if yours doesn't appear, enter its address.
+            </p>
+        </div>
+    </div>
+</div>
+<script src="{% static_v 'js/streamer_connect.js' %}" defer></script>

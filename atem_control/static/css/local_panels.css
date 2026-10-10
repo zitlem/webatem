@@ -1,0 +1,60 @@
+/* Control-page panels added locally (SuperSource, Stream / Record). */
+[x-cloak] { display: none !important; }
+
+.lp-sheet {
+    display: flex; flex-direction: column; width: min(78rem, 100%); max-height: min(52rem, 92vh);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); overflow: hidden;
+}
+.lp-sheet-narrow { width: min(40rem, 100%); }
+.lp-head { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); }
+.lp-title { display: flex; align-items: center; gap: 0.5rem; font-size: 15px; font-weight: 700; color: var(--text); }
+.lp-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted); }
+.lp-note { font-size: 12px; color: var(--text-faint); }
+.lp-foot { font-size: 12px; color: var(--text-faint); margin-top: auto; }
+.lp-body { padding: 1rem; overflow: auto; min-height: 0; }
+.lp-stack { display: flex; flex-direction: column; gap: 1rem; }
+
+.lp-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.lp-seg button { padding: 0.3rem 0.75rem; font-size: 13px; font-weight: 600; background: var(--surface-raised); color: var(--text-muted); }
+.lp-seg button + button { border-left: 1px solid var(--line); }
+.lp-seg button[aria-pressed="true"] { background: var(--text); color: #141618; }
+
+/* SuperSource */
+.lp-ssrc { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 1fr); gap: 1rem; }
+@media (max-width: 900px) { .lp-ssrc { grid-template-columns: minmax(0, 1fr); } }
+.lp-col { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.lp-frame {
+    position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; touch-action: none;
+    background: repeating-linear-gradient(45deg, #15171a 0 10px, #181b1e 10px 20px);
+    border: 1px solid var(--line); border-radius: 6px;
+}
+.lp-frame-art { position: absolute; left: 8px; bottom: 6px; font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); }
+.lp-box {
+    position: absolute; box-sizing: border-box; cursor: move; user-select: none;
+    background: rgba(237, 237, 234, 0.12); border: 2px solid rgba(237, 237, 234, 0.55);
+}
+.lp-box-sel { border-color: oklch(var(--wa)); background: color-mix(in srgb, oklch(var(--wa)) 18%, transparent); z-index: 20 !important; }
+.lp-box-label { position: absolute; left: 6px; top: 4px; font-size: 12px; font-family: var(--font-mono); color: var(--text); text-shadow: 0 1px 2px #000; white-space: nowrap; }
+.lp-box-handle {
+    position: absolute; right: -2px; bottom: -2px; width: 14px; height: 14px; cursor: nwse-resize;
+    background: oklch(var(--wa)); border-radius: 3px 0 0 0;
+}
+.lp-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.lp-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.lp-tabs button { padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 13px; font-weight: 600; background: var(--surface-raised); color: var(--text-muted); border: 1px solid var(--line); }
+.lp-tabs button[aria-selected="true"] { border-color: oklch(var(--wa)); color: oklch(var(--wa)); }
+.lp-tabs button.lp-off { opacity: 0.55; }
+.lp-fields { display: flex; flex-direction: column; gap: 0.6rem; }
+.lp-row { display: grid; grid-template-columns: 8rem minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; font-size: 13px; color: var(--text-muted); }
+.lp-row > :nth-child(2):last-child { grid-column: 2 / -1; }
+.lp-row output { min-width: 3.5rem; text-align: right; color: var(--text); font-size: 12px; }
+
+/* Stream / Record */
+.lp-section { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.875rem; border: 1px solid var(--line); border-radius: 10px; }
+.lp-live { border-color: var(--pgm); box-shadow: inset 0 0 0 1px var(--pgm); }
+.lp-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem; }
+.lp-status { font-size: 20px; font-weight: 800; letter-spacing: 0.06em; color: var(--text); }
+.lp-live .lp-status { color: var(--pgm); }
+.lp-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.lp-actions-end { justify-content: flex-end; }

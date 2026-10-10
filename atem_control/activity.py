@@ -14,6 +14,7 @@ class ActivityLog:
     DEVICE_ATEM = 'atem'
     DEVICE_HYPERDECK = 'hyperdeck'
     DEVICE_VIDEOHUB = 'videohub'   # local addition: Videohub router control
+    DEVICE_STREAMER = 'streamer'   # local addition: Web Presenter / Streaming Encoder
 
 
 def record_activity(**kwargs):

@@ -1,0 +1,33 @@
+{% load static_v %}
+{% comment %} Local additions to the control page's header: SuperSource and
+   ATEM stream/record. Each button shows only when the connected switcher
+   reports the feature; its panel is an overlay like HyperDeck's. Included
+   once, from control/_header.html. {% endcomment %}
+<div class="contents" x-data="ssrcPanel()" x-init="boot()">
+    <button class="btn bg-base-300 hover:bg-base-content hover:text-base-100 border-0 gap-2 shadow-md"
+            x-show="count > 0" x-cloak @click="openPanel()" title="SuperSource boxes and art">
+        <i class="bi bi-grid-1x2 text-lg"></i>
+        <span class="font-semibold hidden 2xl:inline">SuperSource</span>
+    </button>
+    {% include 'supersource/_panel.html' %}
+</div>
+<div class="contents" x-data="atemStreamPanel()" x-init="boot()">
+    <button class="btn bg-base-300 hover:bg-base-content hover:text-base-100 border-0 gap-2 shadow-md"
+            x-show="available" x-cloak @click="openPanel()" title="Streaming and recording">
+        <i class="bi text-lg" :class="onAir() ? 'bi-record-circle-fill text-[color:var(--pgm)]' : 'bi-record-circle'"></i>
+        <span class="font-semibold hidden 2xl:inline">Stream / Record</span>
+    </button>
+    {% include 'atemstream/_panel.html' %}
+</div>
+<script>
+    window.LOCAL_PANEL_URLS = {
+        ssrcState: "{% url 'atem_control:supersource_state' %}",
+        ssrcBox: "{% url 'atem_control:supersource_box' %}",
+        ssrcArt: "{% url 'atem_control:supersource_art' %}",
+        streamState: "{% url 'atem_control:atemstream_state' %}",
+        streamAction: "{% url 'atem_control:atemstream_action' %}"
+    };
+</script>
+<link rel="stylesheet" href="{% static_v 'css/local_panels.css' %}">
+<script src="{% static_v 'js/atem_supersource.js' %}"></script>
+<script src="{% static_v 'js/atem_stream.js' %}"></script>

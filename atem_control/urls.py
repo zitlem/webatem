@@ -31,6 +31,12 @@ urlpatterns = [
     path('hyperdeck/transport/',        hyperdeck_views.hyperdeck_transport, name='hyperdeck_transport'),
 ]
 
-# Local addition: Videohub router control, opened from the Connect page.
+# Local additions: Videohub and streaming-encoder pages (opened from the
+# Connect page), SuperSource and ATEM stream/record panels (control page).
 from django.urls import include  # noqa: E402
-urlpatterns += [path('videohub/', include('atem_control.videohub.urls'))]
+urlpatterns += [
+    path('videohub/', include('atem_control.videohub.urls')),
+    path('streamer/', include('atem_control.streamer.urls')),
+    path('supersource/', include('atem_control.supersource.urls')),
+    path('stream/', include('atem_control.atemstream.urls')),
+]

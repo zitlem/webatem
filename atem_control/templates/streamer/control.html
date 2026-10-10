@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% load static static_v %}
+
+{% block title %}Streaming encoder{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/videohub.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/streamer.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %} Local addition: Web Presenter / Streaming Encoder control. Shares
+   the Videohub page's card, header and button styles (videohub.css). {% endcomment %}
+<div class="vh-page se-page" x-data="streamerPage('{{ device_ip|escapejs }}')">
+
+    <header class="vh-card vh-header">
+        <a href="{% url 'atem_control:connect' %}" class="vh-tool" title="Back to the Connect page"><i class="bi bi-arrow-left"></i></a>
+        <span class="brand-mark" style="width:32px;height:32px" role="img" aria-label="WebATEM">{% include "brand/_mark.svg" %}</span>
+        <h1 class="vh-title brand-data">
+            <span class="vh-dot" :class="ok ? 'vh-dot-ok' : (loading ? '' : 'vh-dot-bad')"></span>
+            <span x-text="identity.Label || (loading ? 'Connecting…' : 'Streaming encoder')"></span>
+            <span class="vh-sub" x-text="ip"></span>
+            <span class="vh-sub" x-show="identity.Model" x-text="'· ' + (identity.Model || '').replace('Blackmagic ', '')"></span>
+        </h1>
+        <div class="vh-header-tools">
+            <div class="vh-menu" @click.outside="menu = false">
+                <button type="button" class="vh-tool" @click="menu = !menu" :aria-expanded="menu" title="Device"><i class="bi bi-three-dots"></i></button>
+                <div class="vh-menu-list vh-menu-right" x-show="menu" x-cloak>
+                    <button type="button" class="vh-menu-item" @click="menu = false; reboot()">
+                        <i class="bi bi-arrow-repeat"></i><span>Reboot the encoder…</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="se-grid" x-show="ready" x-cloak>
+        <!-- On air -->
+        <section class="vh-card se-air" :class="'se-' + statusKey()">
+            <h2 class="vh-kicker">Stream</h2>
+            <div class="se-status brand-data" x-text="statusText()"></div>
+            <dl class="se-stats brand-data">
+                <div><dt>Duration</dt><dd x-text="duration()"></dd></div>
+                <div><dt>Bitrate</dt><dd x-text="bitrate()"></dd></div>
+                <div><dt>Cache</dt><dd x-text="stream.cache === null ? '—' : stream.cache + '%'"></dd></div>
+            </dl>
+            <p class="se-target brand-data" x-text="targetText()"></p>
+            <div class="se-air-tools">
+                <button type="button" class="se-go" @click="startStream()" :disabled="busy || live()">
+                    <i class="bi bi-broadcast"></i> START STREAM
+                </button>
+                <button type="button" class="se-stop" @click="stopStream()" :disabled="busy || !live()">
+                    <i class="bi bi-stop-fill"></i> STOP
+                </button>
+            </div>
+        </section>
+
+        <!-- Stream settings -->
+        <section class="vh-card se-card">
+            <div class="se-card-head">
+                <h2 class="vh-kicker">Stream settings</h2>
+                <span class="vh-sub" x-show="dirty()">Unsaved changes</span>
+            </div>
+            <div class="se-form">
+                <label>Platform
+                    <select class="vh-input" x-model="form.platform" @change="changePlatform()">
+                        <template x-for="p in platforms()" :key="p"><option :value="p" x-text="p" :selected="p === form.platform"></option></template>
+                    </select>
+                </label>
+                <label>Server
+                    <select class="vh-input" x-model="form.server">
+                        <template x-for="s in list('Available Servers')" :key="s"><option :value="s" x-text="s" :selected="s === form.server"></option></template>
+                    </select>
+                </label>
+                <label>Quality
+                    <select class="vh-input" x-model="form.quality">
+                        <template x-for="q in list('Available Quality Levels')" :key="q"><option :value="q" x-text="q" :selected="q === form.quality"></option></template>
+                    </select>
+                </label>
+                <label>Video mode
+                    <select class="vh-input" x-model="form.videoMode">
+                        <template x-for="m in list('Available Video Modes')" :key="m"><option :value="m" x-text="m" :selected="m === form.videoMode"></option></template>
+                    </select>
+                </label>
+                <label class="se-wide" x-show="settings['Customizable URL'] === 'true'">Server URL
+                    <input type="text" class="vh-input brand-data" x-model="form.url" placeholder="rtmp:// or srt://">
+                </label>
+                <label class="se-wide">Stream key
+                    <span class="se-secret">
+                        <input :type="showKey ? 'text' : 'password'" class="vh-input brand-data" x-model="form.key" autocomplete="off">
+                        <button type="button" class="vh-tool" @click="showKey = !showKey" :title="showKey ? 'Hide' : 'Show'">
+                            <i class="bi" :class="showKey ? 'bi-eye-slash' : 'bi-eye'"></i>
+                        </button>
+                    </span>
+                </label>
+                <label class="se-wide">SRT passphrase
+                    <input :type="showKey ? 'text' : 'password'" class="vh-input brand-data" x-model="form.password" autocomplete="off" placeholder="Only for SRT platforms">
+                </label>
+            </div>
+            <div class="se-form-tools">
+                <button type="button" class="vh-tool" @click="resetForm()" :disabled="!dirty()">Revert</button>
+                <button type="button" class="vh-tool vh-primary" @click="saveStream()" :disabled="!dirty() || busy">Save</button>
+            </div>
+        </section>
+
+        <!-- Device -->
+        <section class="vh-card se-card">
+            <h2 class="vh-kicker">Device</h2>
+            <div class="se-form">
+                <label class="se-wide">Name
+                    <span class="se-secret">
+                        <input type="text" class="vh-input" x-model="device.label" maxlength="64">
+                        <button type="button" class="vh-tool" @click="saveSetting('IDENTITY', 'Label', device.label)"
+                                :disabled="device.label === (identity.Label || '')">Save</button>
+                    </span>
+                </label>
+                <label>Monitor out audio
+                    <select class="vh-input" @change="saveSetting('AUDIO SETTINGS', 'Current Monitor Out Audio Source', $event.target.value)">
+                        <template x-for="a in audioList('Available Monitor Out Audio Sources')" :key="a">
+                            <option :value="a" x-text="a" :selected="a === audio['Current Monitor Out Audio Source']"></option>
+                        </template>
+                    </select>
+                </label>
+                <label>Audio meter
+                    <select class="vh-input" @change="saveSetting('UI SETTINGS', 'Current Audio Meter', $event.target.value)">
+                        <template x-for="m in uiList('Available Audio Meters')" :key="m">
+                            <option :value="m" x-text="m" :selected="m === ui['Current Audio Meter']"></option>
+                        </template>
+                    </select>
+                </label>
+                <label>Language
+                    <select class="vh-input" @change="saveSetting('UI SETTINGS', 'Current Locale', $event.target.value)">
+                        <template x-for="l in uiList('Available Locales')" :key="l">
+                            <option :value="l" x-text="l" :selected="l === ui['Current Locale']"></option>
+                        </template>
+                    </select>
+                </label>
+            </div>
+            <h2 class="vh-kicker se-sub-head">Network <span class="vh-sub">(read only)</span></h2>
+            <template x-for="n in interfaces" :key="n.name">
+                <dl class="se-net brand-data">
+                    <div><dt x-text="n.name"></dt><dd x-text="(n.addresses.join(', ') || '—') + (n.dhcp ? ' · DHCP' : ' · static')"></dd></div>
+                    <div x-show="n.gateway"><dt>Gateway</dt><dd x-text="n.gateway"></dd></div>
+                </dl>
+            </template>
+            <p class="vh-sub se-version" x-text="versionText()"></p>
+        </section>
+    </div>
+
+    <div class="vh-card vh-empty" x-show="!ready" x-cloak>
+        <template x-if="loading"><p><span class="loading loading-spinner"></span> Connecting to <span class="brand-data" x-text="ip"></span>…</p></template>
+        <template x-if="!loading">
+            <div>
+                <p x-text="ip ? ('Could not reach a streaming encoder at ' + ip + (error ? ': ' + error : '')) : 'No encoder address given.'"></p>
+                <a class="vh-tool" href="{% url 'atem_control:connect' %}"><i class="bi bi-arrow-left"></i><span>Connect page</span></a>
+                <button type="button" class="vh-tool" x-show="ip" @click="open()"><i class="bi bi-arrow-clockwise"></i><span>Retry</span></button>
+            </div>
+        </template>
+    </div>
+
+    <div class="vh-toasts">
+        <template x-for="t in toasts" :key="t.id">
+            <div class="vh-toast" :class="'vh-toast-' + t.kind" x-text="t.text"></div>
+        </template>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.STREAMER_URLS = {
+        open: "{% url 'atem_control:streamer_open' %}",
+        state: "{% url 'atem_control:streamer_state' %}",
+        stream: "{% url 'atem_control:streamer_stream' %}",
+        settings: "{% url 'atem_control:streamer_settings' %}",
+        reboot: "{% url 'atem_control:streamer_reboot' %}"
+    };
+</script>
+<script src="{% static_v 'js/streamer.js' %}"></script>
+<script defer src="{% static 'vendor/alpine.min.js' %}"></script>
+{% endblock %}

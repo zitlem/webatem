@@ -1,0 +1,73 @@
+{% comment %} ATEM built-in streaming / recording panel (local addition). State
+   and methods: atemStreamPanel() in js/atem_stream.js. {% endcomment %}
+<div class="fixed inset-0 z-[200]" x-show="open" x-cloak @keydown.escape.window="open = false">
+    <div class="atem-overlay-backdrop absolute inset-0 pointer-events-auto" @click="open = false"></div>
+    <div class="relative h-full flex items-center justify-center p-4 pointer-events-none">
+        <div class="lp-sheet lp-sheet-narrow pointer-events-auto" @click.stop x-show="open">
+            <div class="lp-head">
+                <h2 class="lp-title"><i class="bi bi-record-circle"></i> Stream / Record</h2>
+                <span class="lp-note" x-show="error" x-text="error"></span>
+                <button type="button" class="btn btn-sm btn-ghost btn-square ml-auto" @click="open = false" title="Close (Esc)"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="lp-body lp-stack">
+                <template x-if="s.has_streaming">
+                    <section class="lp-section" :class="{ 'lp-live': s.streaming.status === 'on_air' }">
+                        <div class="lp-section-head">
+                            <span class="lp-kicker">Stream</span>
+                            <span class="lp-status brand-data" x-text="streamText()"></span>
+                            <span class="lp-note brand-data" x-show="s.streaming.bitrate !== null" x-text="mbps(s.streaming.bitrate) + (s.streaming.cache !== null ? ' · cache ' + s.streaming.cache + '%' : '')"></span>
+                        </div>
+                        <div class="lp-actions">
+                            <button type="button" class="btn btn-error" @click="act('start_stream', 'Go live on ' + (s.streaming.service || 'the stream service') + '?')"
+                                    :disabled="busy || s.streaming.status === 'on_air' || s.streaming.status === 'connecting'">
+                                <i class="bi bi-broadcast"></i> Start stream</button>
+                            <button type="button" class="btn" @click="act('stop_stream', 'Stop the stream?')"
+                                    :disabled="busy || s.streaming.status === 'idle'"><i class="bi bi-stop-fill"></i> Stop</button>
+                        </div>
+                        <div class="lp-fields">
+                            <label class="lp-row"><span>Service</span><input class="input input-sm input-bordered" x-model="f.name" maxlength="63"></label>
+                            <label class="lp-row"><span>Server URL</span><input class="input input-sm input-bordered brand-data" x-model="f.url"></label>
+                            <label class="lp-row"><span>Stream key</span>
+                                <span class="flex gap-1 min-w-0"><input :type="showKey ? 'text' : 'password'" class="input input-sm input-bordered brand-data flex-1 min-w-0" x-model="f.key" autocomplete="off">
+                                <button type="button" class="btn btn-sm btn-ghost btn-square" @click="showKey = !showKey"><i class="bi" :class="showKey ? 'bi-eye-slash' : 'bi-eye'"></i></button></span>
+                            </label>
+                            <label class="lp-row"><span>Video Mb/s (low–high)</span>
+                                <span class="flex gap-1"><input type="number" step="0.5" min="0" class="input input-sm input-bordered w-24" x-model.number="f.vmin">
+                                <input type="number" step="0.5" min="0" class="input input-sm input-bordered w-24" x-model.number="f.vmax"></span>
+                            </label>
+                            <div class="lp-actions lp-actions-end">
+                                <button type="button" class="btn btn-sm" @click="resetForm()">Revert</button>
+                                <button type="button" class="btn btn-sm btn-primary" @click="saveStream()" :disabled="busy">Save stream settings</button>
+                            </div>
+                        </div>
+                    </section>
+                </template>
+                <template x-if="s.has_recording">
+                    <section class="lp-section" :class="{ 'lp-live': s.recording.recording }">
+                        <div class="lp-section-head">
+                            <span class="lp-kicker">Record</span>
+                            <span class="lp-status brand-data" x-text="recordText()"></span>
+                            <span class="lp-note brand-data" x-text="(s.recording.duration || '') + (s.recording.time_available ? ' · ' + hours(s.recording.time_available) + ' left' : '')"></span>
+                        </div>
+                        <p class="lp-note" x-show="s.recording.disk_full || s.recording.disk_error || s.recording.disk_unformatted || s.recording.dropped_frames"
+                           x-text="[s.recording.disk_full && 'disk full', s.recording.disk_error && 'disk error', s.recording.disk_unformatted && 'disk not formatted', s.recording.dropped_frames && 'dropped frames'].filter(Boolean).join(' · ')"></p>
+                        <div class="lp-actions">
+                            <button type="button" class="btn btn-error" @click="act('start_record')" :disabled="busy || s.recording.recording"><i class="bi bi-record-fill"></i> Record</button>
+                            <button type="button" class="btn" @click="act('stop_record', 'Stop recording?')" :disabled="busy || !s.recording.recording"><i class="bi bi-stop-fill"></i> Stop</button>
+                        </div>
+                        <div class="lp-fields">
+                            <label class="lp-row"><span>File name</span><input class="input input-sm input-bordered brand-data" x-model="f.filename" maxlength="127"></label>
+                            <label class="lp-row"><span>Also record in cameras</span>
+                                <input type="checkbox" class="toggle toggle-sm" :checked="s.recording.record_in_cameras" @change="saveRecord({ record_in_camera: $event.target.checked })"></label>
+                            <p class="lp-note" x-show="s.recording.disk" x-text="s.recording.disk ? 'Disk: ' + (s.recording.disk.name || ('#' + s.recording.disk.index)) + (s.recording.disk.ready ? ' · ready' : '') : ''"></p>
+                            <div class="lp-actions lp-actions-end">
+                                <button type="button" class="btn btn-sm btn-primary" @click="saveRecord({ filename: f.filename })" :disabled="busy || f.filename === s.recording.filename">Save file name</button>
+                            </div>
+                        </div>
+                    </section>
+                </template>
+                <p class="lp-foot">This switcher's streaming and recording commands have not been tested on hardware yet.</p>
+            </div>
+        </div>
+    </div>
+</div>
