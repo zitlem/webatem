@@ -110,6 +110,8 @@
         }
         .cbar-x:hover .cbar-thumb, .cbar-x.is-dragging .cbar-thumb { height: 10px; }
     </style>
+    <!-- Fill-the-window layout (local change), with js/fit-window.js. -->
+    <link rel="stylesheet" href="{% static_v 'css/fit-window.css' %}">
 </head>
 
 <body class="min-h-screen flex flex-col">
@@ -212,5 +214,7 @@
             }
         })();
     </script>
+    <!-- Fill-the-window layout (local change), with css/fit-window.css. -->
+    <script src="{% static_v 'js/fit-window.js' %}" defer></script>
 </body>
 </html>

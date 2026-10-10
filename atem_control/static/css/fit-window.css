@@ -1,0 +1,189 @@
+/* Fill-the-window layout (local change), with fit-window.js.
+   fit-window.js picks --atem-btn so the control surface fills the window;
+   the rules here let the layout follow it: button labels scale with the
+   button, the surface is the window's height, the T-bar fills its column,
+   and the header wraps whole groups instead of squeezing its button row.
+   Off with ?fit=0, like the script. */
+
+html.wa-fit .controls-transition .aspect-square {
+    font-size: clamp(9px, calc(var(--atem-btn) * 0.24), 22px);
+    line-height: 1.15;
+}
+
+/* The surface is at least the window's height and the grid takes what the
+   header leaves; the grid's rows share out any spare height. */
+html.wa-fit .controls-transition {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100dvh - 1rem);
+}
+html.wa-fit .controls-transition > .grid {
+    flex: 1 1 auto;
+    gap: 0.625rem;
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > * + *,
+html.wa-fit .controls-transition > .grid > .space-y-6 > * + * {
+    margin-top: 0.625rem;
+}
+
+/* Less chrome: upstream's page edge (2rem a side), 1.5rem-2rem gaps and 2rem
+   card padding cost more of a laptop window than the controls do. */
+html.wa-fit main {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+html.wa-fit .atem-main-content {
+    padding: 0.5rem;
+}
+html.wa-fit .controls-transition .card-body {
+    padding: clamp(0.5rem, 0.9vw, 1rem);
+}
+html.wa-fit .controls-transition .card-title {
+    margin-bottom: 0.375rem;
+}
+html.wa-fit .controls-transition > .card:first-child {
+    margin-bottom: 0.625rem;
+}
+
+/* When the width, not the height, limits the buttons, a card is taller
+   than its controls: they sit centred under the title rather than leaving
+   the spare height pooled at the bottom. */
+html.wa-fit .controls-transition > .grid .card:not(.h-full) > .card-body > :last-child {
+    margin-top: auto;
+    margin-bottom: auto;
+}
+
+/* T-bar: as tall as its column, not a fixed 400px. */
+html.wa-fit .tbar-section-vertical {
+    align-self: stretch;
+    min-height: 0;
+}
+html.wa-fit .tbar-container-vertical {
+    height: 100%;
+    min-height: 12rem;
+}
+
+/* The controls that are not squares scale with the squares, so each card
+   holds its share of the row instead of sitting half empty beside a bus. */
+html.wa-fit .controls-transition > .grid > .space-y-6 > .card:nth-child(3) .card-body > .grid > .flex:first-child > .btn {
+    height: var(--atem-btn);
+    min-height: 0;
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(2) .card-body > .grid button,
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(3) .card-body > .grid button {
+    height: calc(var(--atem-btn) * 0.7);
+    min-height: 0;
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(2) .card-body > .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));   /* upstream's 5 overlap in a half-width card */
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(4) .space-y-3 > .flex:first-child > button {
+    width: var(--atem-btn);
+    height: var(--atem-btn);
+    min-height: 0;
+}
+
+/* Keys: the DSK rate inputs beside the DSK buttons rather than under them,
+   so the Keys card is no taller than the Program bus beside it. */
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(1) .card-body > .grid > div:nth-child(2) > .grid {
+    justify-content: start;
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(1) .card-body > .grid > div:nth-child(2) > .space-y-2 {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 0.75rem;
+    row-gap: 0.5rem;
+    align-items: center;
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(1) .card-body > .grid > div:nth-child(2) > .space-y-2 > * {
+    margin-top: 0;
+}
+html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(1) .card-body > .grid > div:nth-child(2) > .space-y-2 > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+}
+
+@media (min-width: 640px) {
+    /* Header: title, buttons and connect controls wrap as whole groups. */
+    html.wa-fit .controls-transition > .card:first-child > .card-body > .grid {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        column-gap: 1.5rem;
+        row-gap: 0.75rem;
+    }
+    html.wa-fit .controls-transition > .card:first-child > .card-body > .grid > :nth-child(2) {
+        flex-wrap: nowrap;
+    }
+    /* A narrower address field keeps the header on one row down to 1280px. */
+    html.wa-fit .controls-transition > .card:first-child input.brand-data {
+        width: clamp(9rem, 12vw, 11.5rem);
+        flex: 0 1 auto;
+    }
+
+    /* The cards are placed on one grid of rows shared across the window,
+       below, instead of upstream's two columns of stacked cards: its
+       right-hand column of four is taller than a laptop window at any button
+       size. The column wrappers step aside (display: contents) so each card
+       is placed directly. */
+    html.wa-fit .controls-transition > .grid > .space-y-4,
+    html.wa-fit .controls-transition > .grid > .space-y-6 {
+        display: contents;
+    }
+    html.wa-fit .controls-transition > .grid > .space-y-4 > * + *,
+    html.wa-fit .controls-transition > .grid > .space-y-6 > * + * {
+        margin-top: 0;
+    }
+    html.wa-fit .controls-transition > .grid > .space-y-6 > .card:nth-child(1) { grid-area: pgm; }
+    html.wa-fit .controls-transition > .grid > .space-y-6 > .card:nth-child(2) { grid-area: pvw; }
+    html.wa-fit .controls-transition > .grid > .space-y-6 > .card:nth-child(3) { grid-area: trans; }
+    html.wa-fit .controls-transition > .grid > .tbar-column { grid-area: tbar; }
+    html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(1) { grid-area: keys; }
+    html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(2) { grid-area: style; }
+    html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(3) { grid-area: macros; }
+    html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(4) { grid-area: ftb; }
+
+    /* Keys: the USK and DSK banks side by side at their own width (upstream
+       stacks them below xl, and from xl gives them fixed 5:2 shares that
+       leave the DSK rate rows too narrow to fit). */
+    html.wa-fit .controls-transition > .grid > .space-y-4 > .card:nth-child(1) .card-body > .grid {
+        grid-template-columns: max-content max-content;
+        justify-content: space-between;
+    }
+}
+
+/* Landscape, or about square, from 1024px: the buses take the width their
+   buttons need and the right-hand cards the rest, so fit-window.js can trade one against the
+   other. */
+@media (min-width: 1024px) and (min-aspect-ratio: 4/5) {
+    html.wa-fit .controls-transition > .grid {
+        grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
+        grid-template-areas:
+            "pgm   tbar keys   keys"
+            "pvw   tbar style  ftb"
+            "trans tbar macros macros";
+    }
+}
+
+/* Portrait (taller than 5:4, an upright iPad), or a window too narrow for
+   the landscape rows: the buses and Keys get the full width. */
+@media (min-width: 640px) and (max-aspect-ratio: 4/5), (min-width: 640px) and (max-width: 1023.98px) {
+    html.wa-fit .controls-transition > .grid {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        grid-template-rows: repeat(6, auto);
+        grid-template-areas:
+            "pgm    pgm    tbar"
+            "pvw    pvw    tbar"
+            "trans  trans  tbar"
+            "keys   keys   keys"
+            "style  ftb    ftb"
+            "macros macros macros";
+    }
+    /* Upstream hides the T-bar below 1024px; here it has a column. */
+    html.wa-fit .controls-transition > .grid > .tbar-column {
+        display: block;
+        width: 96px;
+    }
+}
