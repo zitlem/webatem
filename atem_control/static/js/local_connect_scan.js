@@ -48,6 +48,17 @@
     }
 
     btn.addEventListener('click', scan);
+
+    // The ATEM card says what the device cards say when it has found nothing
+    // (its own hint names the Rescan button this page hides).
+    var atemList = document.getElementById('discoveryList');
+    var atemEmpty = document.getElementById('discoveryEmpty');
+    if (atemList && atemEmpty) {
+        atemEmpty.textContent = 'Nothing found yet. Press Scan network, or enter an address.';
+        var sync = function () { atemEmpty.classList.toggle('hidden', atemList.children.length > 0); };
+        sync();
+        new MutationObserver(sync).observe(atemList, { childList: true });
+    }
     input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); scan(); }
     });
