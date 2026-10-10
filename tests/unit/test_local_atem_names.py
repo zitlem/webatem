@@ -50,3 +50,33 @@ def test_rename_updates_the_saved_name(data_dir):
     localhooks.remember(IP, 'Main Hall', 'ATEM 1 M/E Production Studio 4K')
     LocalHooks().record_named(IP, 'Chapel')
     assert localhooks.saved(IP) == ('Chapel', 'ATEM 1 M/E Production Studio 4K')
+
+
+def test_unnamed_switcher_is_read_once_in_the_background(data_dir):
+    started = []
+    with _live('', ''), mock.patch('atem_control.hooks.Hooks.name_for_ip', return_value=None), \
+         mock.patch.object(localhooks.threading, 'Thread') as thread:
+        thread.return_value.start.side_effect = lambda: started.append(1)
+        localhooks._fetching.discard(IP)
+        LocalHooks().name_for_ip(IP)
+        LocalHooks().name_for_ip(IP)
+    assert started == [1]          # once per run, however often the page asks
+
+
+def test_background_read_skips_addresses_not_in_recent(data_dir):
+    runs = {}
+
+    class Inline:
+        def __init__(self, target, **_kw):
+            runs['target'] = target
+
+        def start(self):
+            runs['target']()
+
+    acquire = mock.MagicMock()
+    with mock.patch.object(localhooks.threading, 'Thread', Inline), \
+         mock.patch.object(localhooks, '_recent_ips', return_value={'192.0.2.99'}), \
+         mock.patch('atemwire.pool.acquire_connection', acquire):
+        localhooks._fetching.discard(IP)
+        localhooks._fetch_once(IP)
+    acquire.assert_not_called()

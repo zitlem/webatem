@@ -6,6 +6,11 @@ has not heard is listed by bare IP on the Connect page for good. Here every
 successful connect also records the switcher's own name (its ATEM Setup
 name, else its product name) and model in ``DATA_DIR/atem_names.json``, and
 ``name_for_ip`` falls back to the live session and then to that record.
+
+A switcher in the Recent list that has never been named is read once, in
+the background: one short session (the pool's own connect, about a second
+of one client slot), its name and model saved, never again. Only switchers
+already in the connection log are read, never an address someone typed.
 """
 import json
 import logging
@@ -20,6 +25,7 @@ from atem_control.hooks import Hooks
 logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
+_fetching = set()     # IPs read (or being read) this run
 
 
 def _path():
@@ -85,6 +91,37 @@ def saved(ip):
     return entry.get('name', ''), entry.get('model', '')
 
 
+def _recent_ips():
+    from atem_control.models import get_recent_atems
+    return {row['ip_address'] for row in get_recent_atems(limit=20)}
+
+
+def _fetch_once(ip):
+    """Read an unnamed Recent switcher's name in the background, once."""
+    with _lock:
+        if ip in _fetching:
+            return
+        _fetching.add(ip)
+
+    def run():
+        try:
+            if ip not in _recent_ips():
+                return
+            from atemwire.messages.system_info import device_name, product_name
+            from atemwire.pool import acquire_connection
+            with acquire_connection(ip) as conn:
+                mx = conn.mixerstate
+                model = product_name(mx)
+                name = device_name(mx) or model
+            if name:
+                remember(ip, name, model)
+                logger.info('named switcher %s: %s', ip, name)
+        except Exception as e:
+            logger.info('could not read the name of switcher %s: %s', ip, e)
+
+    threading.Thread(target=run, daemon=True, name=f'atem-name-{ip}').start()
+
+
 class LocalHooks(Hooks):
     def name_for_ip(self, ip):
         name = super().name_for_ip(ip)
@@ -93,7 +130,10 @@ class LocalHooks(Hooks):
         name, _model = _live(ip)
         if name:
             return name
-        return saved(ip)[0] or None
+        name = saved(ip)[0]
+        if not name:
+            _fetch_once(ip)
+        return name or None
 
     def record_video_mode(self, ip, label):
         # Runs once per successful connect, with the switcher's state in.
