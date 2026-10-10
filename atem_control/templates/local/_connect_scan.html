@@ -16,5 +16,10 @@
     /* The ATEM card's own subnet field and Rescan stay in the page for its
        script, driven from here; the page shows one scan control. */
     #scanSubnet, #scanBtn { display: none !important; }
+    /* Recent switchers read like the other cards' rows: the name, then the
+       address small and faint. The Name/IP switch has nothing to pick. */
+    html .recent-by-name { display: inline !important; }
+    html .recent-by-ip { display: inline !important; margin-left: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; opacity: 0.6; }
+    .recent-label-switch { display: none !important; }
 </style>
 <script src="{% static_v 'js/local_connect_scan.js' %}" defer></script>
