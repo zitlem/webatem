@@ -30,3 +30,7 @@ urlpatterns = [
     path('hyperdeck/status/',           hyperdeck_views.hyperdeck_status, name='hyperdeck_status'),
     path('hyperdeck/transport/',        hyperdeck_views.hyperdeck_transport, name='hyperdeck_transport'),
 ]
+
+# Local addition: Videohub router control, opened from the Connect page.
+from django.urls import include  # noqa: E402
+urlpatterns += [path('videohub/', include('atem_control.videohub.urls'))]

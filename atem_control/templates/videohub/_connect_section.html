@@ -1,0 +1,33 @@
+{% load static_v %}
+{% comment %} Local addition: open a Videohub router from the Connect page,
+   instead of an ATEM. Filled by js/videohub_connect.js. {% endcomment %}
+<div class="card w-full max-w-md bg-base-200 vh-connect">
+    <div class="card-body">
+        <h2 class="card-title text-base gap-2">
+            <i class="bi bi-diagram-3 text-[color:var(--text-muted)]"></i>
+            Videohub routers
+        </h2>
+        <form class="flex gap-2" id="vhConnectForm" data-page-url="{% url 'atem_control:videohub' %}">
+            <input type="text" id="vhIp" placeholder="Videohub IP address" autocomplete="off"
+                   class="input input-bordered flex-1 min-w-0 brand-data" aria-label="Videohub IP address">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-box-arrow-in-right mr-1"></i>Open</button>
+        </form>
+        <p class="text-xs text-error hidden" id="vhIpError">Enter an IPv4 address, e.g. 192.168.1.40</p>
+        <div class="form-control hidden" id="vhRecentWrap">
+            <div class="label"><span class="label-text text-sm text-base-content/70">Recent</span></div>
+            <div class="flex flex-wrap gap-2" id="vhRecent"></div>
+        </div>
+        <div class="form-control">
+            <div class="label"><span class="label-text text-sm text-base-content/70">On Your Network</span></div>
+            <div class="flex flex-wrap gap-2" id="vhFound"></div>
+            <p class="text-xs text-base-content/50 mt-1" id="vhFoundEmpty">
+                Looking for Videohubs on your network… they appear here automatically.
+            </p>
+        </div>
+    </div>
+</div>
+<style>
+    /* The Connect page's single centred card becomes a wrapping row of two. */
+    div:has(> .vh-connect) { flex-wrap: wrap; gap: 1rem; }
+</style>
+<script src="{% static_v 'js/videohub_connect.js' %}" defer></script>

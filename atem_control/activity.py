@@ -13,6 +13,7 @@ class ActivityLog:
     FEATURE_ATEM_CONTROL = 'atem_control'
     DEVICE_ATEM = 'atem'
     DEVICE_HYPERDECK = 'hyperdeck'
+    DEVICE_VIDEOHUB = 'videohub'   # local addition: Videohub router control
 
 
 def record_activity(**kwargs):

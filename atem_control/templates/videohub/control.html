@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% load static static_v %}
+
+{% block title %}Videohub{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/videohub.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="vh-page" x-data="videohubPage('{{ hub_ip|escapejs }}')"
+     @keydown.window="onKey($event)">
+
+    <!-- Header: back to Connect, the hub, view / take / salvos / file / labels -->
+    <header class="vh-card vh-header">
+        <a href="{% url 'atem_control:connect' %}" class="vh-tool" title="Back to the Connect page">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <span class="brand-mark" style="width:32px;height:32px" role="img" aria-label="WebATEM">{% include "brand/_mark.svg" %}</span>
+        <h1 class="vh-title brand-data">
+            <span class="vh-dot" :class="ok ? 'vh-dot-ok' : (loading ? '' : 'vh-dot-bad')"></span>
+            <span x-text="device.friendly_name || (loading ? 'Connecting…' : 'Videohub')"></span>
+            <span class="vh-sub" x-text="ip"></span>
+            <span class="vh-sub" x-text="modelText()"></span>
+        </h1>
+
+        <div class="vh-header-tools">
+            <div class="vh-seg" role="group" aria-label="View">
+                <button type="button" :aria-pressed="view === 'buttons'" @click="setView('buttons')" title="Destination and source buttons">
+                    <i class="bi bi-grid-3x2-gap"></i><span>Buttons</span>
+                </button>
+                <button type="button" :aria-pressed="view === 'matrix'" @click="setView('matrix')" title="Crosspoint matrix">
+                    <i class="bi bi-grid-3x3"></i><span>Matrix</span>
+                </button>
+            </div>
+
+            <button type="button" class="vh-tool vh-take-toggle" :aria-pressed="useTake" @click="toggleTake()"
+                    title="Use TAKE: a route waits for TAKE (Enter) or CLEAR (Esc)">
+                <i class="bi" :class="useTake ? 'bi-check2-square' : 'bi-square'"></i><span>Use TAKE</span>
+            </button>
+
+            <div class="vh-menu" @click.outside="salvoMenu = false">
+                <button type="button" class="vh-tool" @click="salvoMenu = !salvoMenu; loadSalvos()" :aria-expanded="salvoMenu" title="Salvos: saved sets of routes">
+                    <i class="bi bi-collection"></i><span>Salvos</span><i class="bi bi-chevron-down vh-caret"></i>
+                </button>
+                <div class="vh-menu-list" x-show="salvoMenu" x-cloak>
+                    <template x-for="s in salvos" :key="s.name">
+                        <div class="vh-menu-row">
+                            <button type="button" class="vh-menu-item" @click="fireSalvo(s)" :title="s.routes.length + ' routes'">
+                                <i class="bi bi-play-fill"></i><span x-text="s.name"></span>
+                                <span class="vh-sub" x-text="s.routes.length"></span>
+                            </button>
+                            <button type="button" class="vh-menu-del" @click="deleteSalvo(s)" :title="'Delete ' + s.name">
+                                <i class="bi bi-trash3"></i>
+                            </button>
+                        </div>
+                    </template>
+                    <p class="vh-menu-empty" x-show="!salvos.length">No salvos yet.</p>
+                    <button type="button" class="vh-menu-item vh-menu-add" @click="salvoMenu = false; askSalvoName()">
+                        <i class="bi bi-plus-lg"></i><span>Save current routing…</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="vh-menu" @click.outside="fileMenu = false">
+                <button type="button" class="vh-tool" @click="fileMenu = !fileMenu" :aria-expanded="fileMenu" title="Routes file, labels">
+                    <i class="bi bi-three-dots"></i>
+                </button>
+                <div class="vh-menu-list vh-menu-right" x-show="fileMenu" x-cloak>
+                    <a class="vh-menu-item" :href="'{% url 'atem_control:videohub_routes_file' %}?ip=' + encodeURIComponent(ip)" @click="fileMenu = false">
+                        <i class="bi bi-download"></i><span>Save routes to a file</span>
+                    </a>
+                    <label class="vh-menu-item">
+                        <i class="bi bi-upload"></i><span>Load routes from a file…</span>
+                        <input type="file" accept=".txt,text/plain" class="hidden" @change="importRoutes($event)">
+                    </label>
+                    <button type="button" class="vh-menu-item" @click="fileMenu = false; editLabels = !editLabels">
+                        <i class="bi bi-pencil-square"></i><span x-text="editLabels ? 'Stop editing labels' : 'Edit labels'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Action bar: the selected destination and what can be done to it -->
+    <section class="vh-card vh-actions" x-show="ready" x-cloak>
+        <template x-if="dest">
+            <div class="vh-actions-target">
+                <span class="vh-kicker">Destination</span>
+                <span class="vh-actions-name brand-data" x-text="dest.label"></span>
+                <i class="bi bi-arrow-left-short vh-arrow"></i>
+                <span class="vh-actions-src brand-data" x-text="sourceLabel(dest.source)"></span>
+                <span class="vh-lock-note" x-show="dest.lock !== 'U'" x-text="dest.lock === 'O' ? 'Locked by WebATEM' : 'Locked by another panel'"></span>
+            </div>
+        </template>
+        <div class="vh-actions-tools">
+            <button type="button" class="vh-tool" @click="previous()" :disabled="!dest || previousFor(dest) === null || dest.lock === 'L'"
+                    :title="dest && previousFor(dest) !== null ? 'Back to ' + sourceLabel(previousFor(dest)) : 'No previous route'">
+                <i class="bi bi-arrow-counterclockwise"></i><span>Previous</span>
+            </button>
+            <button type="button" class="vh-tool" @click="toggleLock()" :disabled="!dest"
+                    :title="lockTitle()">
+                <i class="bi" :class="dest && dest.lock !== 'U' ? 'bi-unlock' : 'bi-lock'"></i>
+                <span x-text="dest && dest.lock === 'L' ? 'Force unlock' : (dest && dest.lock === 'O' ? 'Unlock' : 'Lock')"></span>
+            </button>
+            <span class="vh-edit-note" x-show="editLabels"><i class="bi bi-pencil"></i> Click a button to rename it</span>
+            <template x-if="pending">
+                <span class="vh-pending brand-data" x-text="pendingText()"></span>
+            </template>
+            <button type="button" class="vh-clear" @click="clearPending()" :disabled="!pending" title="Cancel (Esc)">CLEAR</button>
+            <button type="button" class="vh-take" :class="{ 'vh-take-armed': pending }" @click="take()" :disabled="!pending" title="Route it (Enter)">TAKE</button>
+        </div>
+    </section>
+
+    <!-- Buttons view: destinations (gold), then sources (white) -->
+    <div class="vh-body" x-show="ready && view === 'buttons'" x-cloak x-ref="buttonsView">
+        <section class="vh-card vh-bank">
+            <div class="vh-bank-head">
+                <h2 class="vh-kicker vh-kicker-dest">Destinations</h2>
+                <input type="search" class="vh-filter" placeholder="Filter" x-model="destFilter" aria-label="Filter destinations">
+            </div>
+            <div class="vh-grid">
+                <template x-for="o in filteredOutputs()" :key="'o' + o.index">
+                    <button type="button" class="vh-btn vh-dest"
+                            :class="{ 'vh-selected': selected === o.index, 'vh-locked-o': o.lock === 'O', 'vh-locked-l': o.lock === 'L',
+                                      'vh-pending-dest': pending && pending.routes.some(r => r[0] === o.index) }"
+                            :data-index="o.index"
+                            @click="clickDest(o)" @dblclick="dblDest(o)"
+                            @pointerdown="pressStart(o)" @pointerup="pressEnd()" @pointerleave="pressEnd()"
+                            :title="o.label + ' ← ' + sourceLabel(o.source)">
+                        <span class="vh-num" x-text="o.index + 1"></span>
+                        <i class="bi bi-lock-fill vh-lock" x-show="o.lock !== 'U'"></i>
+                        <span class="vh-label" x-text="o.label"></span>
+                        <span class="vh-routed" x-text="sourceLabel(o.source)"></span>
+                    </button>
+                </template>
+            </div>
+        </section>
+        <section class="vh-card vh-bank">
+            <div class="vh-bank-head">
+                <h2 class="vh-kicker">Sources</h2>
+                <input type="search" class="vh-filter" placeholder="Filter" x-model="srcFilter" aria-label="Filter sources">
+            </div>
+            <div class="vh-grid">
+                <template x-for="i in filteredInputs()" :key="'i' + i.index">
+                    <button type="button" class="vh-btn vh-src"
+                            :class="{ 'vh-routed-src': dest && dest.source === i.index,
+                                      'vh-pending-src': pending && pending.routes.length === 1 && pending.routes[0][1] === i.index }"
+                            :data-index="i.index"
+                            @click="clickSource(i)" :title="i.label">
+                        <span class="vh-num" x-text="i.index + 1"></span>
+                        <span class="vh-label" x-text="i.label"></span>
+                    </button>
+                </template>
+            </div>
+        </section>
+    </div>
+
+    <!-- Matrix view: sources across, destinations down -->
+    <div class="vh-body vh-matrix-wrap vh-card" x-show="ready && view === 'matrix'" x-cloak x-ref="matrixView">
+        <table class="vh-matrix" @mouseleave="hover = null">
+            <thead>
+                <tr>
+                    <th class="vh-corner"><span class="vh-kicker">Dest ↓ / Source →</span></th>
+                    <template x-for="i in inputs" :key="'h' + i.index">
+                        <th class="vh-col" :class="{ 'vh-hot': hover && hover[1] === i.index }" :title="(i.index + 1) + ' ' + i.label"
+                            @click="editLabels && rename('input', i)">
+                            <span x-text="i.label"></span>
+                        </th>
+                    </template>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="o in outputs" :key="'r' + o.index">
+                    <tr :class="{ 'vh-row-locked': o.lock === 'L', 'vh-row-sel': selected === o.index }">
+                        <th class="vh-rowhead" :class="{ 'vh-hot': hover && hover[0] === o.index }" @click="clickDest(o)" @dblclick="dblDest(o)"
+                            :title="(o.index + 1) + ' ' + o.label + ' ← ' + sourceLabel(o.source)">
+                            <i class="bi bi-lock-fill vh-lock" x-show="o.lock !== 'U'"></i>
+                            <span x-text="o.label"></span>
+                        </th>
+                        <template x-for="i in inputs" :key="o.index + '-' + i.index">
+                            <td class="vh-cell"
+                                :class="{ 'vh-on': o.source === i.index,
+                                          'vh-cell-pending': pending && pending.routes.some(r => r[0] === o.index && r[1] === i.index),
+                                          'vh-hot': hover && (hover[0] === o.index || hover[1] === i.index) }"
+                                @mouseenter="hover = [o.index, i.index]"
+                                @click="clickCell(o, i)"
+                                :title="i.label + ' → ' + o.label"></td>
+                        </template>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- First load / unreachable -->
+    <div class="vh-card vh-empty" x-show="!ready" x-cloak>
+        <template x-if="loading"><p><span class="loading loading-spinner"></span> Connecting to <span class="brand-data" x-text="ip"></span>…</p></template>
+        <template x-if="!loading">
+            <div>
+                <p x-text="ip ? ('Could not reach a Videohub at ' + ip + (error ? ': ' + error : '')) : 'No Videohub address given.'"></p>
+                <a class="vh-tool" href="{% url 'atem_control:connect' %}"><i class="bi bi-arrow-left"></i><span>Connect page</span></a>
+                <button type="button" class="vh-tool" x-show="ip" @click="open()"><i class="bi bi-arrow-clockwise"></i><span>Retry</span></button>
+            </div>
+        </template>
+    </div>
+
+    <!-- Rename / salvo-name dialog -->
+    <div class="vh-dialog" x-show="dialog" x-cloak @keydown.escape.stop="dialog = null">
+        <div class="vh-dialog-backdrop" @click="dialog = null"></div>
+        <form class="vh-card vh-dialog-box" @submit.prevent="dialogOk()" x-show="dialog">
+            <h2 class="vh-kicker" x-text="dialog && dialog.title"></h2>
+            <input type="text" class="vh-input brand-data" maxlength="64" x-ref="dialogInput" x-model="dialogValue">
+            <p class="vh-sub" x-show="dialog && dialog.note" x-text="dialog && dialog.note"></p>
+            <div class="vh-dialog-tools">
+                <button type="button" class="vh-tool" @click="dialog = null">Cancel</button>
+                <button type="submit" class="vh-tool vh-primary">Save</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Messages -->
+    <div class="vh-toasts">
+        <template x-for="t in toasts" :key="t.id">
+            <div class="vh-toast" :class="'vh-toast-' + t.kind" x-text="t.text"></div>
+        </template>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.VIDEOHUB_URLS = {
+        open: "{% url 'atem_control:videohub_open' %}",
+        state: "{% url 'atem_control:videohub_state' %}",
+        route: "{% url 'atem_control:videohub_route' %}",
+        previous: "{% url 'atem_control:videohub_previous' %}",
+        lock: "{% url 'atem_control:videohub_lock' %}",
+        label: "{% url 'atem_control:videohub_label' %}",
+        salvos: "{% url 'atem_control:videohub_salvos' %}",
+        routesFile: "{% url 'atem_control:videohub_routes_file' %}"
+    };
+</script>
+<script src="{% static_v 'js/videohub.js' %}"></script>
+<script defer src="{% static 'vendor/alpine.min.js' %}"></script>
+{% endblock %}
