@@ -17,6 +17,7 @@ inside ``Profile.from_atem`` uses the same ATEM file-transfer mechanism
 the watcher's thumbnail downloads contend on.
 """
 
+import hashlib
 import io
 import logging
 import threading
@@ -31,6 +32,7 @@ from atemwire import ATEM, Profile
 from atemwire.profile import SaveOptions, download_media_pool_images
 from atemwire.messages.media import mediaplayer_slot_info
 
+from atem_control.media_pool import still_cache
 from atem_control.media_pool import watcher as _media_pool_service
 from atem_control.profile.dialog import (
     me_options_from_sections, section_value,
@@ -185,6 +187,50 @@ def _resolve_atem_db_name(ip: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Media pool file names
+# ---------------------------------------------------------------------------
+
+MEDIA_POOL_FOLDER = 'ATEM Media Pool'
+
+
+def _media_pool_files(captured: list) -> dict:
+    """slot → its PNG's path in the ZIP, the one place the ZIP and the XML
+    take it from: a restore (ours, ATEM Software Control's) finds a slot's
+    picture where the XML's ``<Still path>`` says, so the two must agree.
+
+    A path is ``ATEM Media Pool/<slot name>.png``, as the XML has it, with
+    ``Slot<n>`` for a slot that has no name (the XML gave it no path, so its
+    picture could never come back). Slots with the same name and the same
+    picture share one file. A different picture under a name already taken
+    gets ``<name>_2.png`` (``_3`` …): before, the XML sent both slots to the
+    first file and the second restored with the wrong picture. Names are
+    compared ignoring case, as the restore matches them and as a Mac or
+    Windows folder would extract them. The same picture under two names is
+    written under each, so every slot's path holds a file."""
+    taken: dict = {}          # lower-cased path → picture digest
+    files: dict = {}
+    for entry in captured:
+        base = entry.get('name') or f"Slot{entry['slot']}"
+        digest = hashlib.sha1(entry['png_bytes']).digest()
+        path = f'{MEDIA_POOL_FOLDER}/{base}.png'
+        n = 2
+        while taken.get(path.lower(), digest) != digest:
+            path = f'{MEDIA_POOL_FOLDER}/{base}_{n}.png'
+            n += 1
+        taken[path.lower()] = digest
+        files[entry['slot']] = path
+    return files
+
+
+def _point_stills_at(profile: Profile, files: dict) -> None:
+    """Set each captured slot's ``<Still path>`` to the file it is in."""
+    for still in profile.root.findall('./MediaPool/Stills/Still'):
+        index = still.get('index', '')
+        if index.isdigit() and int(index) in files:
+            still.set('path', files[int(index)])
+
+
+# ---------------------------------------------------------------------------
 # Main export
 # ---------------------------------------------------------------------------
 
@@ -232,14 +278,15 @@ def export_profile_zip(
     All other exceptions propagate uncaught (HTTP 500 territory).
     """
 
-    # Per-request hash dedupe (see ``_cache_get`` / ``_cache_put`` below).
-    # ATEMs frequently end up with multiple slots holding identical content
-    # (e.g. operator drag-dropped the same image to slots 1-20). Without
-    # this, ``download_media_pool_images`` would do 20 round-trips for
-    # 20 slots even though their MPfe hashes match. With it, the second
-    # through twentieth slots hit ``_cache_get`` and reuse the bytes
-    # from the first download — turning ~60 s into ~6 s for the
-    # 20-slot-2-unique case.
+    # Stills by content hash, two deep (see ``_cache_get`` / ``_cache_put``
+    # below). First the still cache on disk (media_pool/still_cache.py):
+    # the watcher keeps every still it downloads there, an upload seeds the
+    # picture it sent, and an earlier save leaves what it fetched, so a
+    # still any of them has seen is no download here at all, ATEM Software
+    # Control's way (it saves the stills it downloaded on connecting). Then
+    # this request's own dedupe: slots holding the same picture share one
+    # download and one bytes object, which the ZIP below dedupes on. Each
+    # fresh download costs ~1.8 s on the wire (the switcher's pace).
     _hash_dedupe: dict[str, bytes] = {}
 
     # Sidechannel: ``download_media_pool_images``'s ``progress_callback``
@@ -252,12 +299,17 @@ def export_profile_zip(
 
     def _cache_get(slot: int, hash_hex: str):
         val = _hash_dedupe.get(hash_hex)
+        if val is None:
+            val = still_cache.get(hash_hex)
+            if val is not None:
+                _hash_dedupe[hash_hex] = val
         _last_from_cache['value'] = val is not None
         return val
 
     def _cache_put(slot: int, hash_hex: str, png_bytes: bytes) -> None:
         _last_from_cache['value'] = False
         _hash_dedupe[hash_hex] = png_bytes
+        still_cache.put(hash_hex, png_bytes)
 
     # Watcher quiet-down for the ENTIRE save. The MediaPoolWatcher's
     # thumbnail downloads compete with our file-transfer activity at the
@@ -273,7 +325,7 @@ def export_profile_zip(
     watcher_quiesced = False
     captured: list = []
     atem_name = 'ATEM'
-    xml = ''
+    profile = None
     try:
         if not legacy_get:
             # Quiesce = the watcher defers its own downloads while this
@@ -287,16 +339,15 @@ def export_profile_zip(
                 raise ATEMConnectError(f'failed to connect to ATEM at {ip}')
 
             profile = Profile.from_atem(atem, save_opts)
-            xml = profile.to_xml()
             atem_name = atem.product_name or 'ATEM'
 
             if save_opts.media_pool_images and not legacy_get:
-                # Captures all used slots via native interleaved
-                # transfers on the pooled connection — ~2 s per fresh
+                # Captures all used slots: a still the still cache keeps
+                # is read from disk; the rest come by native interleaved
+                # transfers on the pooled connection — ~1.8 s per fresh
                 # slot, and operators sharing the connection stay live
                 # throughout (no exclusive_access freeze; ASC-style
-                # step 3). Cache hits via the per-request hash dedupe
-                # are sub-millisecond. Progress fans out via
+                # step 3). Progress fans out via
                 # ``progress_callback``; cancel is checked at every
                 # slot boundary inside ``download_media_pool_images``.
                 #
@@ -307,7 +358,7 @@ def export_profile_zip(
                 # Emit an initial 0/N progress so the bar appears at 0%
                 # the moment the busy state shows in the dialog. Without
                 # this the bar is hidden until the first slot finishes
-                # (~5–10 s later) — confusing because the cancel button
+                # (seconds later) — confusing because the cancel button
                 # and "capturing" status both appear immediately and
                 # the missing bar reads like "is it actually working?".
                 files = mx.get('mediaplayer-file-info', {}) or {}
@@ -348,6 +399,12 @@ def export_profile_zip(
         # later save (and so the registry doesn't accumulate).
         _clear_capture_cancel(cancel_session)
 
+    # Each captured still's file, the same in the XML and the ZIP (see
+    # _media_pool_files); the XML is written once the paths are set.
+    files = _media_pool_files(captured)
+    _point_stills_at(profile, files)
+    xml = profile.to_xml()
+
     # Filename name component: prefer the application's database name for
     # the ATEM (matches what operators see in the equipment list); fall
     # back to the device's self-reported model when the equipment row
@@ -365,12 +422,8 @@ def export_profile_zip(
         # internally) but the XML compresses well. No compression for
         # the PNG entries to skip the wasted CPU.
         #
-        # Dedupe entries by arcname AND content. The capture-side hash
-        # dedupe means slots with identical content share the same
-        # bytes object — an ``is`` identity check is enough to spot
-        # them. Slots with the same display name but different bytes
-        # (rare but possible) get a numeric suffix so neither slot's
-        # data is silently dropped.
+        # One entry per file _media_pool_files assigned: slots that share
+        # a name and a picture share it, so it is written once.
         # Every entry is stamped with the studio-local save time, matching
         # ATEM Software Control's zips. A bare ZipInfo(arcname) defaults to
         # the ZIP epoch (files dated Jan 1 1980 on extract), and writestr's
@@ -382,21 +435,12 @@ def export_profile_zip(
                 xml,
                 compress_type=zipfile.ZIP_DEFLATED,
             )
-            written: dict = {}  # arcname → png_bytes (identity-checked)
+            written: set = set()
             for entry in captured:
-                base = entry["name"]
-                arcname = f'ATEM Media Pool/{base}.png'
-                # Skip if we've already written this exact bytes object
-                # under any name (true content duplicate, e.g. all 20
-                # slots with the same image).
-                if any(v is entry['png_bytes'] for v in written.values()):
+                arcname = files[entry['slot']]
+                if arcname.lower() in written:
                     continue
-                # Otherwise resolve filename collisions by suffixing.
-                counter = 2
-                while arcname in written:
-                    arcname = f'ATEM Media Pool/{base}_{counter}.png'
-                    counter += 1
-                written[arcname] = entry['png_bytes']
+                written.add(arcname.lower())
                 zf.writestr(
                     zipfile.ZipInfo(arcname, date_time=save_time),
                     entry['png_bytes'],

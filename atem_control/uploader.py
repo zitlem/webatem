@@ -4,10 +4,10 @@ atemwire-based media pool upload service.
 Used by the application's uploader worker (``run_uploader`` management
 command) and one-off callers (downtime-overlay button uploads, profile-
 load image upload) to push stills into an ATEM media pool in-process.
-Opens one short-lived AtemProtocol per unique IP, uses the transport's
-aggressive-drain mode for bulk-upload throughput (~3 s per 1080p still
-vs. ~25 s with ACK-paced sends), and verifies each upload via MPfe
-hash equality.
+Opens one short-lived AtemProtocol per unique IP and verifies each upload
+via MPfe hash equality. Since bmdwire 1.5.0 an upload goes as ATEM
+Software Control sends it, each budget whole (about 0.6 s per 1080p
+still, against ~3 s with the old aggressive drain and ~25 s ACK-paced).
 
 Lives in the app rather than in atemwire because tally cycle-wait,
 PIL image prep, progress callbacks, and hash-verify policy are feature
@@ -16,8 +16,10 @@ everything around it is policy.
 
 Validated tuning + gotchas:
 
-- ``aggressive_drain=True`` on the transport — replaces the old
-  ``_install_fast_send`` monkeypatch with a proper constructor flag.
+- ``aggressive_drain=True`` on the transport — replaced the old
+  ``_install_fast_send`` monkeypatch. bmdwire 1.5.0 sends each budget whole
+  whatever the flag, so it changes nothing there; still passed for a host
+  whose bmdwire is older.
 - One AtemProtocol connection reused across all items for a single IP.
 - Verify success via MPfe hash equality (NOT "hash changed" — a re-upload
   of identical content won't change the hash).
@@ -46,7 +48,7 @@ from typing import Callable, List, Optional
 from PIL import Image, UnidentifiedImageError
 from PIL.Image import DecompressionBombError
 from atemwire.protocol import AtemProtocol
-from atemwire.imaging import rgb_to_atem
+from atemwire.imaging import atem_to_rgb, rgb_to_atem
 from atemwire.ready import wait_ready
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,10 @@ CONNECT_RETRY_DELAY = 2.0
 UPLOAD_TIMEOUT = 90.0
 HASH_SETTLE_TIMEOUT = 10.0
 REUPLOAD_SETTLE = 1.0
+# A tally check that finds no switcher state (the session re-handshaking after
+# a drop, or its new dump still arriving) waits this long for the state before
+# it refuses the upload: the budget the connect gives the first dump.
+STATE_READY_TIMEOUT = CONNECTION_TIMEOUT
 
 # Tally cycle-wait timings + the shared cold->hot->cold loop live in
 # ``content_change.tally`` so the media-pool and HyperDeck paths can't drift.
@@ -200,7 +206,55 @@ def _source_on_air(mixerstate, ids: set) -> bool:
     return False
 
 
-def _is_slot_safe(protocol, slot_0_indexed: int) -> bool:
+class _StateNotReady(Exception):
+    """The switcher's state did not come back within STATE_READY_TIMEOUT, so
+    nothing can say the slot is off air. ``_upload_one`` refuses the item."""
+
+
+def _pooled(conn) -> bool:
+    """A pooled ``ATEMConnection`` (how a host calls ``_is_slot_safe``), not
+    the uploader's own ``AtemProtocol``: its worker thread pumps the loop and
+    tracks the session, so it is asked rather than pumped."""
+    return hasattr(conn, 'is_connected')
+
+
+def _state_ready(conn) -> bool:
+    """The switcher's state is there to read: its dump has finished and
+    carried a video mode, the test ``atemwire.ready.wait_ready`` uses. A
+    dropped session empties ``mixerstate`` while the transport re-handshakes
+    in place, and the new dump refills it field by field, so anything short of
+    this can be missing exactly the field that says the slot is on air."""
+    if 'video-mode' not in conn.mixerstate:
+        return False
+    if _pooled(conn):
+        # is_ready (bmdwire >= 1.3) is False through a re-handshake, when
+        # is_connected stays True; the media-pool watcher asks the same.
+        return bool(getattr(conn, 'is_ready', conn.is_connected))
+    # Set at the end-of-dump marker, cleared on a drop.
+    return bool(getattr(conn, 'initialized', False))
+
+
+def _await_state(conn, timeout: float,
+                 is_cancelled: Optional[Callable[[], bool]] = None) -> bool:
+    """Wait until the state is ready (True), or until ``timeout`` seconds pass
+    or ``is_cancelled`` says so (False). A bare protocol is pumped, ticked so
+    a quiet wire cannot hold one pump past the deadline; a pooled connection's
+    own worker is pumping it already."""
+    deadline = time.monotonic() + timeout
+    while not _state_ready(conn):
+        if time.monotonic() >= deadline:
+            return False
+        if is_cancelled is not None and is_cancelled():
+            return False
+        if _pooled(conn):
+            time.sleep(0.02)
+        else:
+            ticked_pump(conn, idle_sleep=0.02)
+    return True
+
+
+def _is_slot_safe(protocol, slot_0_indexed: int,
+                  is_cancelled: Optional[Callable[[], bool]] = None) -> bool:
     """Safe to overwrite a media-pool slot when no media player currently
     showing that slot (as a still) is live on PROGRAM output.
 
@@ -214,7 +268,24 @@ def _is_slot_safe(protocol, slot_0_indexed: int) -> bool:
     Only if tally hasn't arrived yet (rare — it's in the connect state-dump) do
     we fall back to an ME1 program-path reconstruction, so we neither overwrite
     blind nor hang waiting for tally.
+
+    Only a state that is there can say a slot is safe. An empty one (the
+    session reconnecting) or a dump still arriving has no media players and no
+    tally in it, which reads as "nothing on air"; until 2.0.4 that let an
+    upload through into a live slot. So the check first waits up to
+    STATE_READY_TIMEOUT for the state and raises ``_StateNotReady`` if it does
+    not come back. A cancel ends that wait the same way; the caller checks for
+    the cancel first. It raises rather than answering False because "cannot
+    tell" means different things to different callers: to an upload it is a
+    refusal, to a host watching for a slot to go on air it is "not live".
     """
+    if not _await_state(protocol, STATE_READY_TIMEOUT, is_cancelled):
+        raise _StateNotReady(
+            f"switcher state not ready after {STATE_READY_TIMEOUT:.0f}s "
+            f"(session reconnecting); cannot confirm slot {slot_0_indexed + 1} "
+            f"is off air")
+    # Read after the wait: a reconnect REPLACES mixerstate, so a reference
+    # taken before it would be the old, empty dict.
     mixerstate = protocol.mixerstate
     mps = mixerstate.get('mediaplayer-selected') or {}
     if not isinstance(mps, dict):
@@ -250,15 +321,22 @@ def _wait_for_safe_upload_window(protocol, slot_0_indexed: int,
     """Cycle-wait for tally safety before overwriting a media-pool slot. Thin
     wrapper over the shared ``wait_for_safe_cycle`` (content_change.tally) with
     the media-pool slot liveness predicate, so the cold->hot->cold loop is
-    identical to the HyperDeck path."""
+    identical to the HyperDeck path. ``_StateNotReady`` from the predicate is
+    not caught here: it ends the cycle at once, a refusal rather than a wait
+    that runs out the tally timeout as if the slot had stayed live."""
     slot_user = slot_0_indexed + 1
-    tally_present = isinstance(
-        getattr(protocol.mixerstate.get('tally-source'), 'tally', None), dict)
-    log_append(f"slot {slot_user}: tally source "
-               f"{'present (authoritative)' if tally_present else 'ABSENT — using ME1 fallback'}")
+    if not _state_ready(protocol):
+        source = (f"not ready (session reconnecting), waiting up to "
+                  f"{STATE_READY_TIMEOUT:.0f}s for the switcher's state")
+    elif isinstance(getattr(protocol.mixerstate.get('tally-source'), 'tally', None), dict):
+        source = 'present (authoritative)'
+    else:
+        source = 'ABSENT — using ME1 fallback'
+    log_append(f"slot {slot_user}: tally source {source}")
     return wait_for_safe_cycle(
         protocol,
-        is_live=lambda: not _is_slot_safe(protocol, slot_0_indexed),
+        is_live=lambda: not _is_slot_safe(protocol, slot_0_indexed,
+                                          is_cancelled=canceller.is_set),
         is_cancelled=canceller.is_set,
         log=log_append,
         label=f'slot {slot_user}',
@@ -321,6 +399,22 @@ def _slot_hash(protocol, slot: int) -> Optional[bytes]:
     return getattr(entry, 'hash', None) if entry else None
 
 
+def _seed_still_cache(atem_data: bytes, content_hash: bytes, width: int, height: int):
+    """The switcher has confirmed it holds exactly these pixels under this
+    hash, so keep them in the still cache: a profile save or a preview of
+    this still then never downloads the picture we just sent. The PNG is
+    written on the cache's own thread; a failure only costs that later
+    download."""
+    try:
+        from atem_control.media_pool import still_cache
+        if still_cache.contains(content_hash.hex()):
+            return
+        rgba = atem_to_rgb(atem_data, width, height)
+        still_cache.put_frame_later(content_hash.hex(), rgba, width, height)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"still cache: could not seed {content_hash.hex()}: {e}")
+
+
 def _upload_one(protocol, slot: int, image_path: str, width: int, height: int,
                 canceller: _Canceller, log_append: Callable[[str], None],
                 skip_tally: bool) -> ItemResult:
@@ -339,9 +433,19 @@ def _upload_one(protocol, slot: int, image_path: str, width: int, height: int,
         if canceller.is_set():
             return ItemResult(slot=slot, image_path=image_path, success=False,
                               error="cancelled before tally check")
-        if not _wait_for_safe_upload_window(protocol, slot, canceller, log_append):
-            err = ("cancelled during tally wait" if canceller.is_set()
-                   else f"tally timeout: slot {slot_user} stayed live > {TALLY_TIMEOUT:.0f}s")
+        not_ready = None
+        try:
+            safe = _wait_for_safe_upload_window(protocol, slot, canceller, log_append)
+        except _StateNotReady as e:
+            safe, not_ready = False, str(e)
+        if not safe:
+            if canceller.is_set():
+                err = "cancelled during tally wait"
+            elif not_ready:
+                err = not_ready
+                log_append(f"slot {slot_user}: FAIL — {err}")
+            else:
+                err = f"tally timeout: slot {slot_user} stayed live > {TALLY_TIMEOUT:.0f}s"
             return ItemResult(slot=slot, image_path=image_path, success=False, error=err)
 
     if canceller.is_set():
@@ -459,6 +563,7 @@ def _upload_one(protocol, slot: int, image_path: str, width: int, height: int,
         settle = time.time() - settle_start
         log_append(f"slot {slot_user}: PASS upload={upload_duration:.2f}s "
                    f"settle={settle:.2f}s (pre==expected)")
+        _seed_still_cache(atem_data, expected_hash, width, height)
         return ItemResult(slot=slot, image_path=image_path, success=True,
                           upload_seconds=upload_duration, settle_seconds=settle,
                           content_hash=expected_hash.hex())
@@ -494,6 +599,7 @@ def _upload_one(protocol, slot: int, image_path: str, width: int, height: int,
 
     log_append(f"slot {slot_user}: PASS upload={upload_duration:.2f}s "
                f"settle={settle:.2f}s")
+    _seed_still_cache(atem_data, expected_hash, width, height)
     return ItemResult(slot=slot, image_path=image_path, success=True,
                       upload_seconds=upload_duration, settle_seconds=settle,
                       content_hash=expected_hash.hex())
@@ -630,9 +736,8 @@ def _run_for_single_ip(ip_address: str,
     protocol = None
     t_connect = time.time()
     for attempt in range(1, CONNECT_ATTEMPTS + 1):
-        # aggressive_drain=True replaces the old _install_fast_send
-        # monkeypatch — bulk-upload throughput via whole-queue drain per
-        # queue_trigger.
+        # aggressive_drain=True: whole-queue drain per queue_trigger on a
+        # bmdwire before 1.5.0; from 1.5.0 every budget goes whole anyway.
         candidate = AtemProtocol(ip=ip_address, aggressive_drain=True)
         log_append(f"connecting to {ip_address} (attempt {attempt}/{CONNECT_ATTEMPTS})")
         candidate.connect()
